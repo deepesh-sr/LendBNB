@@ -42,6 +42,8 @@ interface LiquidationEvent {
   txHash: string;
 }
 
+type Action = "supply" | "borrow" | "repay" | null;
+
 export default function AppDashboard() {
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [address, setAddress] = useState<string>("");
@@ -49,6 +51,7 @@ export default function AppDashboard() {
   const [positions, setPositions] = useState<PositionInfo[]>([]);
   const [liquidations, setLiquidations] = useState<LiquidationEvent[]>([]);
   const [selectedMarket, setSelectedMarket] = useState<number | null>(null);
+  const [selectedAction, setSelectedAction] = useState<Action>(null);
   const [supplyAmount, setSupplyAmount] = useState("");
   const [collateralAmount, setCollateralAmount] = useState("");
   const [borrowAmount, setBorrowAmount] = useState("");
@@ -95,7 +98,7 @@ export default function AppDashboard() {
   }, [RAY]);
 
   const loadPositions = useCallback(async () => {
-    if (!address) return;
+    if (!address || PROTOCOL_ADDRESS === "0x0000000000000000000000000000000000000000") return;
     try {
       const provider = getProvider();
       const contract = getProtocolContract(provider);
@@ -197,6 +200,18 @@ export default function AppDashboard() {
     setSigner(s);
   }
 
+  function handleSelectMarket(id: number) {
+    setSelectedMarket(id);
+    setSelectedAction(null);
+    setTab("dashboard");
+  }
+
+  function handleBackToMarkets() {
+    setSelectedMarket(null);
+    setSelectedAction(null);
+    setTab("markets");
+  }
+
   async function handleSupply() {
     if (!signer || selectedMarket === null || !supplyAmount) return;
     setLoading(true);
@@ -296,13 +311,54 @@ export default function AppDashboard() {
     return Math.min(100, score);
   }
 
+  const currentMarket = markets.find((m) => m.marketId === selectedMarket);
+  const currentPosition = positions.find(
+    (p) => p.marketId === selectedMarket
+  );
+
+  const ACTIONS = [
+    {
+      key: "supply" as const,
+      label: "Supply",
+      description: "Deposit tokens into the lending pool and earn interest",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+      ),
+      color: "emerald",
+    },
+    {
+      key: "borrow" as const,
+      label: "Borrow",
+      description: "Lock collateral and borrow tokens from the pool",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+        </svg>
+      ),
+      color: "blue",
+    },
+    {
+      key: "repay" as const,
+      label: "Repay",
+      description: "Repay your borrowed tokens to reduce your debt",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+      color: "orange",
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-[#F0B90B] rounded-lg flex items-center justify-center text-black font-bold text-sm">
+            <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center text-white font-bold text-sm">
               ML
             </div>
             <span className="text-lg font-semibold tracking-tight text-gray-900">
@@ -314,7 +370,13 @@ export default function AppDashboard() {
             {(["markets", "dashboard", "liquidations"] as const).map((t) => (
               <button
                 key={t}
-                onClick={() => setTab(t)}
+                onClick={() => {
+                  setTab(t);
+                  if (t === "markets") {
+                    setSelectedMarket(null);
+                    setSelectedAction(null);
+                  }
+                }}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   tab === t
                     ? "bg-gray-900 text-white"
@@ -391,10 +453,7 @@ export default function AppDashboard() {
                     >
                       <MarketCard
                         {...m}
-                        onSelect={(id) => {
-                          setSelectedMarket(id);
-                          setTab("dashboard");
-                        }}
+                        onSelect={handleSelectMarket}
                       />
                     </motion.div>
                   ))}
@@ -411,174 +470,415 @@ export default function AppDashboard() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
-              className="grid grid-cols-1 lg:grid-cols-3 gap-8"
             >
-              {/* Actions Panel */}
-              <div className="lg:col-span-1 space-y-6">
-                <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                  <h3 className="text-lg font-bold text-gray-900 mb-4">
-                    Actions
-                  </h3>
+              {/* No market selected — show portfolio */}
+              {selectedMarket === null ? (
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                    Your Portfolio
+                  </h2>
 
-                  {selectedMarket !== null && (
-                    <p className="text-gray-900 text-sm font-medium mb-4">
+                  {!address ? (
+                    <div className="text-center text-gray-400 py-20 bg-white border border-gray-200 rounded-xl shadow-sm">
+                      <p className="text-lg mb-2">Connect your wallet</p>
+                      <p className="text-sm">
+                        Connect wallet to view your positions and portfolio
+                      </p>
+                    </div>
+                  ) : positions.length === 0 ? (
+                    <div className="text-center text-gray-400 py-20 bg-white border border-gray-200 rounded-xl shadow-sm">
+                      <p className="text-lg mb-2">No active positions</p>
+                      <p className="text-sm">
+                        Go to{" "}
+                        <button
+                          onClick={() => setTab("markets")}
+                          className="text-gray-900 underline hover:no-underline"
+                        >
+                          Markets
+                        </button>{" "}
+                        and select a market to get started
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {positions.map((pos, i) => (
+                        <motion.div
+                          key={pos.marketId}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3, delay: i * 0.1 }}
+                          onClick={() => handleSelectMarket(pos.marketId)}
+                          className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm cursor-pointer hover:border-gray-400 transition-all hover:shadow-md"
+                        >
+                          <div className="flex justify-between items-start mb-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-900 font-bold">
+                                #{pos.marketId}
+                              </div>
+                              <div>
+                                <h4 className="text-gray-900 font-bold">
+                                  Market #{pos.marketId}
+                                </h4>
+                                <p className="text-gray-400 text-xs">
+                                  Click to manage position
+                                </p>
+                              </div>
+                            </div>
+                            <span
+                              className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                                calculateRiskScore(pos) > 30
+                                  ? "bg-red-50 text-red-600"
+                                  : calculateRiskScore(pos) > 10
+                                    ? "bg-yellow-50 text-yellow-700"
+                                    : "bg-emerald-50 text-emerald-600"
+                              }`}
+                            >
+                              Risk: {calculateRiskScore(pos)}/100
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
+                            <div>
+                              <p className="text-gray-500">Supplied</p>
+                              <p className="text-emerald-600 font-mono font-medium">
+                                {pos.supplyDeposited}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500">Collateral</p>
+                              <p className="text-blue-600 font-mono font-medium">
+                                {pos.collateralDeposited}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500">Borrowed</p>
+                              <p className="text-orange-600 font-mono font-medium">
+                                {pos.borrowedAmount}
+                              </p>
+                            </div>
+                          </div>
+
+                          {parseFloat(pos.borrowedAmount) > 0 && (
+                            <HealthBar healthFactor={pos.healthFactor} />
+                          )}
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Market selected — show market info + action picker */
+                <div>
+                  {/* Back button + Market header */}
+                  <div className="flex items-center gap-4 mb-6">
+                    <button
+                      onClick={handleBackToMarkets}
+                      className="text-gray-400 hover:text-gray-900 transition-colors"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <h2 className="text-2xl font-bold text-gray-900">
                       Market #{selectedMarket}
-                    </p>
+                    </h2>
+                  </div>
+
+                  {/* Market Stats */}
+                  {currentMarket && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
+                    >
+                      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                        <p className="text-gray-500 text-sm">Total Supply</p>
+                        <p className="text-gray-900 text-lg font-bold font-mono">
+                          ${currentMarket.totalSupply}
+                        </p>
+                      </div>
+                      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                        <p className="text-gray-500 text-sm">Total Borrowed</p>
+                        <p className="text-gray-900 text-lg font-bold font-mono">
+                          ${currentMarket.totalBorrows}
+                        </p>
+                      </div>
+                      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                        <p className="text-gray-500 text-sm">Supply APY</p>
+                        <p className="text-emerald-600 text-lg font-bold font-mono">
+                          {currentMarket.supplyAPY}%
+                        </p>
+                      </div>
+                      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                        <p className="text-gray-500 text-sm">Borrow APR</p>
+                        <p className="text-orange-600 text-lg font-bold font-mono">
+                          {currentMarket.borrowAPR}%
+                        </p>
+                      </div>
+                    </motion.div>
                   )}
 
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-gray-500 text-sm block mb-1">
-                        Market ID
-                      </label>
-                      <input
-                        type="number"
-                        value={selectedMarket ?? ""}
-                        onChange={(e) =>
-                          setSelectedMarket(Number(e.target.value))
-                        }
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors"
-                        placeholder="0"
-                      />
-                    </div>
+                  {/* Your Position in this market (if any) */}
+                  {currentPosition && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: 0.1 }}
+                      className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm mb-8"
+                    >
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-gray-900 font-bold">
+                          Your Position
+                        </h3>
+                        <span
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                            calculateRiskScore(currentPosition) > 30
+                              ? "bg-red-50 text-red-600"
+                              : calculateRiskScore(currentPosition) > 10
+                                ? "bg-yellow-50 text-yellow-700"
+                                : "bg-emerald-50 text-emerald-600"
+                          }`}
+                        >
+                          Risk: {calculateRiskScore(currentPosition)}/100
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 text-sm mb-4">
+                        <div>
+                          <p className="text-gray-500">Supplied</p>
+                          <p className="text-emerald-600 font-mono font-medium text-lg">
+                            {currentPosition.supplyDeposited}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Collateral</p>
+                          <p className="text-blue-600 font-mono font-medium text-lg">
+                            {currentPosition.collateralDeposited}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Borrowed</p>
+                          <p className="text-orange-600 font-mono font-medium text-lg">
+                            {currentPosition.borrowedAmount}
+                          </p>
+                        </div>
+                      </div>
+                      {parseFloat(currentPosition.borrowedAmount) > 0 && (
+                        <HealthBar healthFactor={currentPosition.healthFactor} />
+                      )}
+                    </motion.div>
+                  )}
 
-                    <div className="border-t border-gray-100 pt-4">
-                      <h4 className="text-gray-900 font-medium mb-2">
-                        Supply
-                      </h4>
-                      <input
-                        type="text"
-                        value={supplyAmount}
-                        onChange={(e) => setSupplyAmount(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 mb-2 focus:outline-none focus:border-gray-900 transition-colors"
-                        placeholder="Amount to supply"
-                      />
-                      <button
-                        onClick={handleSupply}
-                        disabled={loading}
-                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-2.5 rounded-lg disabled:opacity-50 font-medium transition-colors"
-                      >
-                        {loading ? "Processing..." : "Supply"}
-                      </button>
-                    </div>
-
-                    <div className="border-t border-gray-100 pt-4">
-                      <h4 className="text-gray-900 font-medium mb-2">
-                        Borrow
-                      </h4>
-                      <input
-                        type="text"
-                        value={collateralAmount}
-                        onChange={(e) => setCollateralAmount(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 mb-2 focus:outline-none focus:border-gray-900 transition-colors"
-                        placeholder="Collateral amount"
-                      />
-                      <input
-                        type="text"
-                        value={borrowAmount}
-                        onChange={(e) => setBorrowAmount(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 mb-2 focus:outline-none focus:border-gray-900 transition-colors"
-                        placeholder="Borrow amount"
-                      />
-                      <button
-                        onClick={handleBorrow}
-                        disabled={loading}
-                        className="w-full bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-lg disabled:opacity-50 font-medium transition-colors"
-                      >
-                        {loading ? "Processing..." : "Borrow"}
-                      </button>
-                    </div>
-
-                    <div className="border-t border-gray-100 pt-4">
-                      <h4 className="text-gray-900 font-medium mb-2">Repay</h4>
-                      <input
-                        type="text"
-                        value={repayAmountInput}
-                        onChange={(e) => setRepayAmountInput(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 mb-2 focus:outline-none focus:border-gray-900 transition-colors"
-                        placeholder="Repay amount"
-                      />
-                      <button
-                        onClick={handleRepay}
-                        disabled={loading}
-                        className="w-full bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-lg disabled:opacity-50 font-medium transition-colors"
-                      >
-                        {loading ? "Processing..." : "Repay"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Positions */}
-              <div className="lg:col-span-2">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">
-                  Your Positions
-                </h3>
-                {!address ? (
-                  <div className="text-center text-gray-400 py-12 bg-white border border-gray-200 rounded-xl shadow-sm">
-                    Connect wallet to view positions
-                  </div>
-                ) : positions.length === 0 ? (
-                  <div className="text-center text-gray-400 py-12 bg-white border border-gray-200 rounded-xl shadow-sm">
-                    No active positions
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {positions.map((pos, i) => (
-                      <motion.div
-                        key={pos.marketId}
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ duration: 0.3, delay: i * 0.1 }}
-                        className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm"
-                      >
-                        <div className="flex justify-between items-start mb-4">
-                          <h4 className="text-gray-900 font-bold">
-                            Market #{pos.marketId}
-                          </h4>
-                          <span
-                            className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                              calculateRiskScore(pos) > 30
-                                ? "bg-red-50 text-red-600"
-                                : calculateRiskScore(pos) > 10
-                                  ? "bg-yellow-50 text-yellow-700"
-                                  : "bg-emerald-50 text-emerald-600"
-                            }`}
+                  {/* No action selected — show action picker */}
+                  {selectedAction === null ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: 0.15 }}
+                    >
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">
+                        What would you like to do?
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {ACTIONS.map((action, i) => (
+                          <motion.button
+                            key={action.key}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.3, delay: 0.2 + i * 0.1 }}
+                            onClick={() => setSelectedAction(action.key)}
+                            className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm text-left hover:border-gray-400 hover:shadow-md transition-all group"
                           >
-                            Risk: {calculateRiskScore(pos)}/100
-                          </span>
-                        </div>
+                            <div
+                              className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${
+                                action.color === "emerald"
+                                  ? "bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100"
+                                  : action.color === "blue"
+                                    ? "bg-blue-50 text-blue-600 group-hover:bg-blue-100"
+                                    : "bg-orange-50 text-orange-600 group-hover:bg-orange-100"
+                              }`}
+                            >
+                              {action.icon}
+                            </div>
+                            <h4 className="text-gray-900 font-bold text-lg mb-1">
+                              {action.label}
+                            </h4>
+                            <p className="text-gray-500 text-sm">
+                              {action.description}
+                            </p>
+                          </motion.button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  ) : (
+                    /* Action selected — show the form */
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="max-w-lg mx-auto"
+                    >
+                      <button
+                        onClick={() => setSelectedAction(null)}
+                        className="flex items-center gap-2 text-gray-400 hover:text-gray-900 mb-4 transition-colors text-sm"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                        </svg>
+                        Back to actions
+                      </button>
 
-                        <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
+                      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                        {/* Supply Form */}
+                        {selectedAction === "supply" && (
                           <div>
-                            <p className="text-gray-500">Supplied</p>
-                            <p className="text-emerald-600 font-mono font-medium">
-                              {pos.supplyDeposited}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500">Collateral</p>
-                            <p className="text-blue-600 font-mono font-medium">
-                              {pos.collateralDeposited}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500">Borrowed</p>
-                            <p className="text-orange-600 font-mono font-medium">
-                              {pos.borrowedAmount}
-                            </p>
-                          </div>
-                        </div>
+                            <div className="flex items-center gap-3 mb-6">
+                              <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                </svg>
+                              </div>
+                              <div>
+                                <h3 className="text-gray-900 font-bold text-lg">Supply</h3>
+                                <p className="text-gray-400 text-sm">
+                                  Market #{selectedMarket}
+                                </p>
+                              </div>
+                            </div>
 
-                        {parseFloat(pos.borrowedAmount) > 0 && (
-                          <HealthBar healthFactor={pos.healthFactor} />
+                            <label className="text-gray-500 text-sm block mb-1.5">
+                              Amount to Supply
+                            </label>
+                            <input
+                              type="text"
+                              value={supplyAmount}
+                              onChange={(e) => setSupplyAmount(e.target.value)}
+                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 mb-4 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono"
+                              placeholder="0.00"
+                            />
+
+                            {currentMarket && (
+                              <p className="text-gray-400 text-xs mb-4">
+                                Current APY: <span className="text-emerald-600 font-medium">{currentMarket.supplyAPY}%</span>
+                              </p>
+                            )}
+
+                            <button
+                              onClick={handleSupply}
+                              disabled={loading || !address}
+                              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-lg disabled:opacity-50 font-semibold transition-colors text-base"
+                            >
+                              {loading ? "Processing..." : !address ? "Connect Wallet" : "Supply"}
+                            </button>
+                          </div>
                         )}
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </div>
+
+                        {/* Borrow Form */}
+                        {selectedAction === "borrow" && (
+                          <div>
+                            <div className="flex items-center gap-3 mb-6">
+                              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                                </svg>
+                              </div>
+                              <div>
+                                <h3 className="text-gray-900 font-bold text-lg">Borrow</h3>
+                                <p className="text-gray-400 text-sm">
+                                  Market #{selectedMarket}
+                                </p>
+                              </div>
+                            </div>
+
+                            <label className="text-gray-500 text-sm block mb-1.5">
+                              Collateral Amount
+                            </label>
+                            <input
+                              type="text"
+                              value={collateralAmount}
+                              onChange={(e) => setCollateralAmount(e.target.value)}
+                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 mb-4 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono"
+                              placeholder="0.00"
+                            />
+
+                            <label className="text-gray-500 text-sm block mb-1.5">
+                              Borrow Amount
+                            </label>
+                            <input
+                              type="text"
+                              value={borrowAmount}
+                              onChange={(e) => setBorrowAmount(e.target.value)}
+                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 mb-4 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono"
+                              placeholder="0.00"
+                            />
+
+                            {currentMarket && (
+                              <p className="text-gray-400 text-xs mb-4">
+                                Current APR: <span className="text-orange-600 font-medium">{currentMarket.borrowAPR}%</span>
+                              </p>
+                            )}
+
+                            <button
+                              onClick={handleBorrow}
+                              disabled={loading || !address}
+                              className="w-full bg-gray-900 hover:bg-gray-800 text-white py-3 rounded-lg disabled:opacity-50 font-semibold transition-colors text-base"
+                            >
+                              {loading ? "Processing..." : !address ? "Connect Wallet" : "Borrow"}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Repay Form */}
+                        {selectedAction === "repay" && (
+                          <div>
+                            <div className="flex items-center gap-3 mb-6">
+                              <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center text-orange-600">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                              </div>
+                              <div>
+                                <h3 className="text-gray-900 font-bold text-lg">Repay</h3>
+                                <p className="text-gray-400 text-sm">
+                                  Market #{selectedMarket}
+                                </p>
+                              </div>
+                            </div>
+
+                            {currentPosition && parseFloat(currentPosition.borrowedAmount) > 0 && (
+                              <div className="bg-gray-50 rounded-lg p-3 mb-4">
+                                <p className="text-gray-500 text-xs">Outstanding Debt</p>
+                                <p className="text-gray-900 font-mono font-bold text-lg">
+                                  {currentPosition.borrowedAmount}
+                                </p>
+                              </div>
+                            )}
+
+                            <label className="text-gray-500 text-sm block mb-1.5">
+                              Repay Amount
+                            </label>
+                            <input
+                              type="text"
+                              value={repayAmountInput}
+                              onChange={(e) => setRepayAmountInput(e.target.value)}
+                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 mb-4 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono"
+                              placeholder="0.00"
+                            />
+
+                            <button
+                              onClick={handleRepay}
+                              disabled={loading || !address}
+                              className="w-full bg-gray-900 hover:bg-gray-800 text-white py-3 rounded-lg disabled:opacity-50 font-semibold transition-colors text-base"
+                            >
+                              {loading ? "Processing..." : !address ? "Connect Wallet" : "Repay"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              )}
             </motion.div>
           )}
 

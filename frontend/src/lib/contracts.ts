@@ -5,7 +5,7 @@ import protocolAbi from "./LendingProtocol.json";
 export const CHAIN_CONFIG = {
   chainId: 97,
   name: "BNB Smart Chain Testnet",
-  rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+  rpcUrl: "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
   blockExplorer: "https://testnet.bscscan.com",
   nativeCurrency: {
     name: "tBNB",
