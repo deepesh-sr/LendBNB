@@ -38,7 +38,6 @@ export default function ConnectWallet({
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
 
-      // Switch to BNB testnet
       try {
         await window.ethereum.request({
           method: "wallet_switchEthereumChain",
@@ -72,9 +71,9 @@ export default function ConnectWallet({
 
   if (address) {
     return (
-      <div className="flex items-center gap-2 bg-green-900/30 border border-green-700 rounded-lg px-4 py-2">
-        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-        <span className="text-green-400 font-mono text-sm">
+      <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2">
+        <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
+        <span className="text-gray-700 font-mono text-sm">
           {address.slice(0, 6)}...{address.slice(-4)}
         </span>
       </div>
@@ -85,7 +84,7 @@ export default function ConnectWallet({
     <button
       onClick={connect}
       disabled={connecting}
-      className="bg-yellow-500 hover:bg-yellow-400 text-black font-bold px-6 py-2 rounded-lg transition-colors disabled:opacity-50"
+      className="bg-gray-900 hover:bg-gray-800 text-white font-semibold px-5 py-2 rounded-lg transition-colors disabled:opacity-50 text-sm"
     >
       {connecting ? "Connecting..." : "Connect Wallet"}
     </button>

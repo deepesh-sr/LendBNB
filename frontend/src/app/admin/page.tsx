@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
+import { motion } from "framer-motion";
+import Link from "next/link";
 import ConnectWallet from "@/components/ConnectWallet";
 import { getProvider } from "@/lib/contracts";
 
@@ -107,16 +109,16 @@ export default function AdminPage() {
   const isAdmin = address.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
 
   return (
-    <div className="min-h-screen bg-gray-950">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="border-b border-gray-800 bg-gray-900/50 backdrop-blur">
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center text-black font-bold text-sm">
+            <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center text-black font-bold text-sm">
               ML
             </div>
-            <h1 className="text-xl font-bold text-white">
-              MetaLend <span className="text-yellow-500">BNB</span>
+            <h1 className="text-lg font-semibold text-gray-900">
+              MetaLend
               <span className="text-gray-400 text-sm font-normal ml-2">
                 Admin
               </span>
@@ -124,12 +126,12 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-4">
-            <a
-              href="/"
-              className="text-gray-400 hover:text-white text-sm transition-colors"
+            <Link
+              href="/app"
+              className="text-gray-500 hover:text-gray-900 text-sm transition-colors"
             >
               &larr; Back to App
-            </a>
+            </Link>
             <ConnectWallet onConnect={onConnect} />
           </div>
         </div>
@@ -144,54 +146,59 @@ export default function AdminPage() {
           </div>
         ) : !isAdmin ? (
           <div className="text-center py-20">
-            <div className="text-red-500 text-6xl mb-4">&#x26D4;</div>
-            <h2 className="text-2xl font-bold text-white mb-2">
+            <div className="text-red-400 text-6xl mb-4">&#x26D4;</div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
               Access Denied
             </h2>
-            <p className="text-gray-400">
+            <p className="text-gray-500">
               Connected wallet is not authorized for admin access.
             </p>
-            <p className="text-gray-500 text-sm mt-2 font-mono">{address}</p>
+            <p className="text-gray-400 text-sm mt-2 font-mono">{address}</p>
           </div>
         ) : (
           <div>
-            <h2 className="text-2xl font-bold text-white mb-6">
+            <motion.h2
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="text-2xl font-bold text-gray-900 mb-6"
+            >
               Oracle Price Management
-            </h2>
+            </motion.h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {ORACLES.map((oracle) => (
-                <div
+              {ORACLES.map((oracle, i) => (
+                <motion.div
                   key={oracle.address}
-                  className="bg-gray-900 border border-gray-800 rounded-xl p-6"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: i * 0.1 }}
+                  className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm"
                 >
-                  {/* Oracle name and address */}
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 bg-yellow-500/20 rounded-full flex items-center justify-center text-yellow-400 font-bold">
+                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-900 font-bold">
                       {oracle.name.charAt(0)}
                     </div>
                     <div>
-                      <h3 className="text-white font-bold">
+                      <h3 className="text-gray-900 font-bold">
                         {oracle.name} Oracle
                       </h3>
-                      <p className="text-gray-500 text-xs font-mono">
+                      <p className="text-gray-400 text-xs font-mono">
                         {oracle.address.slice(0, 6)}...
                         {oracle.address.slice(-4)}
                       </p>
                     </div>
                   </div>
 
-                  {/* Current price */}
                   <div className="mb-4">
-                    <p className="text-gray-400 text-sm">Current Price</p>
-                    <p className="text-white text-2xl font-mono font-bold">
+                    <p className="text-gray-500 text-sm">Current Price</p>
+                    <p className="text-gray-900 text-2xl font-mono font-bold">
                       ${prices[oracle.address] ?? "Loading..."}
                     </p>
                   </div>
 
-                  {/* Set new price */}
-                  <div className="border-t border-gray-700 pt-4">
-                    <label className="text-gray-400 text-sm block mb-1">
+                  <div className="border-t border-gray-100 pt-4">
+                    <label className="text-gray-500 text-sm block mb-1">
                       New Price (USD)
                     </label>
                     <input
@@ -203,13 +210,13 @@ export default function AdminPage() {
                           [oracle.address]: e.target.value,
                         }))
                       }
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white mb-2"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 mb-2 focus:outline-none focus:border-gray-900 transition-colors"
                       placeholder={`e.g. ${oracle.defaultPrice}`}
                     />
                     <button
                       onClick={() => handleSetPrice(oracle.address)}
                       disabled={loading !== null}
-                      className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-2 rounded-lg disabled:opacity-50 transition-colors"
+                      className="w-full bg-gray-900 hover:bg-gray-800 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50 transition-colors"
                     >
                       {loading === oracle.address
                         ? "Setting Price..."
@@ -217,25 +224,25 @@ export default function AdminPage() {
                     </button>
 
                     {txStatus[oracle.address] === "success" && (
-                      <p className="text-green-400 text-sm mt-2">
+                      <p className="text-emerald-500 text-sm mt-2">
                         Price updated successfully
                       </p>
                     )}
                     {txStatus[oracle.address] === "error" && (
-                      <p className="text-red-400 text-sm mt-2">
+                      <p className="text-red-500 text-sm mt-2">
                         Transaction failed
                       </p>
                     )}
                   </div>
-                </div>
+                </motion.div>
               ))}
             </div>
           </div>
         )}
       </main>
 
-      <footer className="border-t border-gray-800 mt-16 py-6">
-        <div className="max-w-7xl mx-auto px-6 text-center text-gray-500 text-sm">
+      <footer className="border-t border-gray-200 mt-16 py-6">
+        <div className="max-w-7xl mx-auto px-6 text-center text-gray-400 text-sm">
           MetaLend BNB - Admin Panel | Oracle Price Management
         </div>
       </footer>
