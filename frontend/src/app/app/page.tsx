@@ -44,6 +44,16 @@ interface LiquidationEvent {
 
 type Action = "supply" | "borrow" | "repay" | null;
 
+const TOKEN_NAMES: Record<string, string> = {
+  "0x22E53B5B6ceF35caa91b45e1648458e87b2A728e": "USDT",
+  "0x3d6255fCB138d27B6b221dA2Db0d2b31216c9CAa": "WBNB",
+  "0x159d36419c9bA0AD345f5556298708c70f2F8a51": "BTCB",
+};
+
+function tokenName(addr: string): string {
+  return TOKEN_NAMES[ethers.getAddress(addr)] ?? `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
+
 export default function AppDashboard() {
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [address, setAddress] = useState<string>("");
@@ -78,8 +88,8 @@ export default function AppDashboard() {
 
         marketList.push({
           marketId: i,
-          supplyToken: market.supplyToken.slice(0, 8) + "...",
-          collateralToken: market.collateralToken.slice(0, 8) + "...",
+          supplyToken: tokenName(market.supplyToken),
+          collateralToken: tokenName(market.collateralToken),
           totalSupply: Number(
             ethers.formatEther(market.totalSupplyDeposits)
           ).toFixed(2),
@@ -144,12 +154,13 @@ export default function AppDashboard() {
   }, [address, RAY]);
 
   const loadLiquidations = useCallback(async () => {
+    if (PROTOCOL_ADDRESS === "0x0000000000000000000000000000000000000000") return;
     try {
       const provider = getProvider();
       const contract = getProtocolContract(provider);
       const filter = contract.filters.Liquidation();
       const currentBlock = await provider.getBlockNumber();
-      const fromBlock = Math.max(0, currentBlock - 10000);
+      const fromBlock = Math.max(0, currentBlock - 5000);
       const events = await contract.queryFilter(filter, fromBlock);
 
       const liqList: LiquidationEvent[] = [];
