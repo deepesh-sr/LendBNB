@@ -12,6 +12,7 @@ Decentralized lending protocol frontend built on BNB Chain. Supply assets, borro
 | Tailwind CSS | 4 | Styling (utility-first) |
 | Framer Motion | 12 | Animations |
 | ethers.js | 6 | Blockchain interaction |
+| Recharts | 2 | Charts & data visualization |
 | Inter | Google Font | Typography |
 
 ## Setup
@@ -45,7 +46,13 @@ src/
 ├── components/
 │   ├── ConnectWallet.tsx     # MetaMask connect/disconnect/switch
 │   ├── MarketCard.tsx        # Market overview card
-│   └── HealthBar.tsx         # Position health factor bar
+│   ├── HealthBar.tsx         # Position health factor bar
+│   ├── InfoTip.tsx           # Hover tooltip for info icons
+│   └── charts/
+│       ├── MarketDistributionChart.tsx  # Supply/borrow donut charts
+│       ├── ApyComparisonChart.tsx       # APY vs APR grouped bar chart
+│       ├── PortfolioBreakdownChart.tsx  # Portfolio donut + net worth
+│       └── UtilizationGauge.tsx         # Pool utilization progress bars
 └── lib/
     ├── contracts.ts          # Chain config, provider, contract helpers
     └── LendingProtocol.json  # Protocol ABI
@@ -59,10 +66,13 @@ Hero section with video, headline with BNB-yellow gradient accent, "Launch App" 
 ### `/app` — Dashboard
 Three top-level tabs: **Markets**, **Dashboard**, **Liquidations**.
 
-**Markets tab**: Grid of MarketCard components showing each lending market (token pair, TVL, APY/APR, utilization bar).
+**Markets tab**: Grid of MarketCard components showing each lending market (token pair, TVL, APY/APR, utilization bar). Below the cards, a **Market Analytics** section with:
+- Supply & Borrow distribution donut charts (USD values)
+- APY vs APR grouped bar chart comparing markets
+- Pool utilization progress bars with color-coded status
 
 **Dashboard tab**:
-- No market selected → **Portfolio view** (all user positions across markets, clickable)
+- No market selected → **Portfolio view** with wallet balances + portfolio breakdown donut chart (Supplied/Collateral/Borrowed in USD with net worth)
 - Market selected → **Market detail** with stats + **action picker** (Supply / Borrow / Repay)
 - Action selected → **Single action form** with:
   - Token name labels (e.g. "Collateral (WBNB)")
@@ -150,6 +160,19 @@ Restricted to deployer wallet (`0xC7cb71af35CE0EFAbE0beB513C4Aa6Edc48fA1Af`). UI
 - `>= 1.5`: Healthy (emerald)
 - `>= 1.0`: At Risk (yellow)
 - `< 1.0`: Liquidatable (red)
+
+### Chart Components
+
+All chart components are in `src/components/charts/` and use Recharts.
+
+| Component | Type | Data |
+|-----------|------|------|
+| `MarketDistributionChart` | Two donut charts | Supply & borrow totals per market (USD) |
+| `ApyComparisonChart` | Grouped bar chart | Supply APY vs Borrow APR per market |
+| `PortfolioBreakdownChart` | Donut chart | User's supplied/collateral/borrowed + net worth |
+| `UtilizationGauge` | Progress bars | Pool utilization % with color status |
+
+**Color scheme**: Emerald (#10B981) = supply, Blue (#2563EB) = collateral, Orange (#F97316) = borrow, Gray-900 (#1A1A1A) = primary.
 
 ## Smart Contract Integration
 

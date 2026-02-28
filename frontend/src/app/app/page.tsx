@@ -8,6 +8,10 @@ import ConnectWallet from "@/components/ConnectWallet";
 import MarketCard from "@/components/MarketCard";
 import HealthBar from "@/components/HealthBar";
 import InfoTip from "@/components/InfoTip";
+import MarketDistributionChart from "@/components/charts/MarketDistributionChart";
+import ApyComparisonChart from "@/components/charts/ApyComparisonChart";
+import UtilizationGauge from "@/components/charts/UtilizationGauge";
+import PortfolioBreakdownChart from "@/components/charts/PortfolioBreakdownChart";
 import {
   getProtocolContract,
   getProvider,
@@ -816,22 +820,41 @@ export default function AppDashboard() {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {markets.map((m, i) => (
-                    <motion.div
-                      key={m.marketId}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3, delay: i * 0.1 }}
-                    >
-                      <MarketCard
-                        {...m}
-                        marketId={displayId(m.marketId)}
-                        onSelect={() => handleSelectMarket(m.marketId)}
-                      />
-                    </motion.div>
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {markets.map((m, i) => (
+                      <motion.div
+                        key={m.marketId}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3, delay: i * 0.1 }}
+                      >
+                        <MarketCard
+                          {...m}
+                          marketId={displayId(m.marketId)}
+                          onSelect={() => handleSelectMarket(m.marketId)}
+                        />
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Market Analytics Section */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.3 }}
+                    className="mt-10"
+                  >
+                    <h3 className="text-lg font-bold text-gray-900 mb-5">Market Analytics</h3>
+                    <div className="space-y-6">
+                      <MarketDistributionChart markets={markets} tokenPrices={tokenPrices} />
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <ApyComparisonChart markets={markets} />
+                        <UtilizationGauge markets={markets} />
+                      </div>
+                    </div>
+                  </motion.div>
+                </>
               )}
             </motion.div>
           )}
@@ -852,28 +875,33 @@ export default function AppDashboard() {
                     Your Portfolio
                   </h2>
 
-                  {/* Wallet Balances */}
+                  {/* Wallet Balances + Portfolio Chart */}
                   {address && walletBalances.length > 0 && (
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3 }}
-                      className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm mb-6"
+                      className={`grid gap-6 mb-6 ${positions.length > 0 ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1"}`}
                     >
-                      <h3 className="text-gray-900 font-bold mb-3">Wallet Balances</h3>
-                      <div className="grid grid-cols-3 gap-4">
-                        {walletBalances.map((wb) => (
-                          <div key={wb.tokenAddr} className="bg-gray-50 rounded-lg p-3">
-                            <p className="text-gray-500 text-xs">{wb.token}</p>
-                            <p className="text-gray-900 font-mono font-bold text-lg">{wb.balance}</p>
-                            {tokenPrices[wb.tokenAddr] !== undefined && (
-                              <p className="text-gray-400 text-xs font-mono">
-                                ≈ ${(parseFloat(wb.balance) * tokenPrices[wb.tokenAddr]).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </p>
-                            )}
-                          </div>
-                        ))}
+                      <div className={`bg-white border border-gray-200 rounded-xl p-5 shadow-sm ${positions.length > 0 ? "lg:col-span-2" : ""}`}>
+                        <h3 className="text-gray-900 font-bold mb-3">Wallet Balances</h3>
+                        <div className="grid grid-cols-3 gap-4">
+                          {walletBalances.map((wb) => (
+                            <div key={wb.tokenAddr} className="bg-gray-50 rounded-lg p-3">
+                              <p className="text-gray-500 text-xs">{wb.token}</p>
+                              <p className="text-gray-900 font-mono font-bold text-lg">{wb.balance}</p>
+                              {tokenPrices[wb.tokenAddr] !== undefined && (
+                                <p className="text-gray-400 text-xs font-mono">
+                                  ≈ ${(parseFloat(wb.balance) * tokenPrices[wb.tokenAddr]).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
+                      {positions.length > 0 && (
+                        <PortfolioBreakdownChart positions={positions} tokenPrices={tokenPrices} />
+                      )}
                     </motion.div>
                   )}
 
