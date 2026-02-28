@@ -38,17 +38,36 @@ interface PositionInfo {
   supplyDeposited: string;
   collateralDeposited: string;
   borrowedAmount: string;
+  ctokenBalance: string;
+  healthFactor: number;
+  supplyToken: string;
+  collateralToken: string;
+  supplyTokenAddr: string;
+  collateralTokenAddr: string;
+}
+
+interface LiquidatablePosition {
+  marketId: number;
+  borrower: string;
+  supplyToken: string;
+  collateralToken: string;
+  debt: string;
+  collateral: string;
+  healthFactor: number;
+  maxRepay: string; // 50% of debt (MAX_CLOSE_FACTOR)
+}
+
+interface MarketBorrower {
+  borrower: string;
+  debt: string;
+  collateral: string;
   healthFactor: number;
 }
 
-interface LiquidationEvent {
-  marketId: number;
-  borrower: string;
-  liquidator: string;
-  debtRepaid: string;
-  collateralSeized: string;
-  timestamp: number;
-  txHash: string;
+interface WalletBalance {
+  token: string;
+  tokenAddr: string;
+  balance: string;
 }
 
 type Action = "supply" | "borrow" | "repay" | null;
@@ -68,7 +87,11 @@ export default function AppDashboard() {
   const [address, setAddress] = useState<string>("");
   const [markets, setMarkets] = useState<MarketInfo[]>([]);
   const [positions, setPositions] = useState<PositionInfo[]>([]);
-  const [liquidations, setLiquidations] = useState<LiquidationEvent[]>([]);
+  const [liquidations, setLiquidations] = useState<LiquidatablePosition[]>([]);
+  const [liquidatingIdx, setLiquidatingIdx] = useState<number | null>(null);
+  const [liquidateAmounts, setLiquidateAmounts] = useState<Record<string, string>>({});
+  const [marketBorrowers, setMarketBorrowers] = useState<MarketBorrower[]>([]);
+  const [walletBalances, setWalletBalances] = useState<WalletBalance[]>([]);
   const [selectedMarket, setSelectedMarket] = useState<number | null>(null);
   const [selectedAction, setSelectedAction] = useState<Action>(null);
   const [supplyAmount, setSupplyAmount] = useState("");
@@ -166,6 +189,8 @@ export default function AppDashboard() {
             }
           }
 
+          const market = await contract.getMarket(i);
+
           positionList.push({
             marketId: i,
             supplyDeposited: Number(
@@ -177,7 +202,14 @@ export default function AppDashboard() {
             borrowedAmount: Number(
               ethers.formatEther(pos.borrowedAmount)
             ).toFixed(2),
+            ctokenBalance: Number(
+              ethers.formatEther(pos.ctokenBalance)
+            ).toFixed(4),
             healthFactor: hf,
+            supplyToken: tokenName(market.supplyToken),
+            collateralToken: tokenName(market.collateralToken),
+            supplyTokenAddr: ethers.getAddress(market.supplyToken),
+            collateralTokenAddr: ethers.getAddress(market.collateralToken),
           });
         }
       }
@@ -190,52 +222,207 @@ export default function AppDashboard() {
   const loadLiquidations = useCallback(async () => {
     if (PROTOCOL_ADDRESS === "0x0000000000000000000000000000000000000000") return;
 
-    // Retry with RPC rotation on rate limit
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const provider = attempt === 0 ? getProvider() : rotateRpc();
         const contract = getProtocolContract(provider);
-        const filter = contract.filters.Liquidation();
+        const marketCount = Number(await contract.marketCount());
+
+        // Scan Borrow events in 5000-block chunks (BSC testnet limit)
         const currentBlock = await provider.getBlockNumber();
-        const fromBlock = Math.max(0, currentBlock - 2000);
-        const events = await contract.queryFilter(filter, fromBlock);
+        const borrowFilter = contract.filters.Borrow();
+        const borrowersByMarket = new Map<number, Set<string>>();
+        const CHUNK = 4999;
+        const MAX_LOOKBACK = 200000; // ~7 days on BSC
 
-        const liqList: LiquidationEvent[] = [];
-        for (const event of events.slice(-20)) {
-          const parsed = contract.interface.parseLog({
-            topics: event.topics as string[],
-            data: event.data,
-          });
-          if (!parsed) continue;
-
-          const block = await event.getBlock();
-          liqList.push({
-            marketId: Number(parsed.args.marketId),
-            borrower: parsed.args.borrower,
-            liquidator: parsed.args.liquidator,
-            debtRepaid: Number(
-              ethers.formatEther(parsed.args.debtRepaid)
-            ).toFixed(2),
-            collateralSeized: Number(
-              ethers.formatEther(parsed.args.collateralSeized)
-            ).toFixed(4),
-            timestamp: block.timestamp,
-            txHash: event.transactionHash,
-          });
+        for (
+          let to = currentBlock;
+          to > Math.max(0, currentBlock - MAX_LOOKBACK);
+          to -= CHUNK + 1
+        ) {
+          const from = Math.max(0, to - CHUNK);
+          try {
+            const events = await contract.queryFilter(borrowFilter, from, to);
+            for (const event of events) {
+              const parsed = contract.interface.parseLog({
+                topics: event.topics as string[],
+                data: event.data,
+              });
+              if (!parsed) continue;
+              const mId = Number(parsed.args.marketId);
+              if (!borrowersByMarket.has(mId)) borrowersByMarket.set(mId, new Set());
+              borrowersByMarket.get(mId)!.add(parsed.args.user);
+            }
+          } catch (chunkErr) {
+            const chunkMsg = String(chunkErr);
+            if (chunkMsg.includes("rate limit") || chunkMsg.includes("-32005")) {
+              // Rotate RPC and retry this chunk
+              const retryProvider = rotateRpc();
+              const retryContract = getProtocolContract(retryProvider);
+              const retryEvents = await retryContract.queryFilter(borrowFilter, from, to);
+              for (const event of retryEvents) {
+                const parsed = retryContract.interface.parseLog({
+                  topics: event.topics as string[],
+                  data: event.data,
+                });
+                if (!parsed) continue;
+                const mId = Number(parsed.args.marketId);
+                if (!borrowersByMarket.has(mId)) borrowersByMarket.set(mId, new Set());
+                borrowersByMarket.get(mId)!.add(parsed.args.user);
+              }
+            }
+          }
         }
-        setLiquidations(liqList.reverse());
-        return; // Success — exit retry loop
+
+        const liqPositions: LiquidatablePosition[] = [];
+
+        for (let mId = 0; mId < marketCount; mId++) {
+          const borrowers = borrowersByMarket.get(mId);
+          if (!borrowers || borrowers.size === 0) continue;
+
+          const market = await contract.getMarket(mId);
+          const supplyTok = tokenName(market.supplyToken);
+          const collTok = tokenName(market.collateralToken);
+
+          for (const borrower of borrowers) {
+            try {
+              const pos = await contract.getPosition(mId, borrower);
+              const debt = Number(ethers.formatEther(pos.borrowedAmount));
+              if (debt === 0) continue;
+
+              const hfRaw = await contract.getHealthFactor(mId, borrower);
+              const hf = Number(hfRaw) / Number(RAY);
+              if (hf >= 1.0) continue; // healthy — skip
+
+              const coll = Number(ethers.formatEther(pos.collateralDeposited));
+              const maxRepay = debt * 0.5;
+
+              liqPositions.push({
+                marketId: mId,
+                borrower,
+                supplyToken: supplyTok,
+                collateralToken: collTok,
+                debt: debt.toFixed(4),
+                collateral: coll.toFixed(4),
+                healthFactor: hf,
+                maxRepay: maxRepay.toFixed(4),
+              });
+            } catch {
+              continue;
+            }
+          }
+        }
+
+        liqPositions.sort((a, b) => a.healthFactor - b.healthFactor);
+        setLiquidations(liqPositions);
+        return;
       } catch (err) {
         const msg = String(err);
-        if (msg.includes("rate limit") || msg.includes("-32005")) {
-          console.warn(`Liquidation RPC rate limited, rotating (attempt ${attempt + 1}/3)`);
+        if (msg.includes("rate limit") || msg.includes("-32005") || msg.includes("block range")) {
+          console.warn(`Liquidation scan issue, rotating RPC (attempt ${attempt + 1}/3)`);
           continue;
         }
-        console.error("Failed to load liquidations:", err);
+        console.error("Failed to load liquidatable positions:", err);
         return;
       }
     }
-  }, []);
+  }, [RAY]);
+
+  // Load all borrowers for the currently selected market
+  const loadMarketBorrowers = useCallback(async (marketId: number) => {
+    try {
+      const provider = getProvider();
+      const contract = getProtocolContract(provider);
+
+      // Scan Borrow events in chunks to find all borrowers for this market
+      const currentBlock = await provider.getBlockNumber();
+      const borrowFilter = contract.filters.Borrow(marketId);
+      const CHUNK = 4999;
+      const MAX_LOOKBACK = 200000;
+      const borrowerSet = new Set<string>();
+
+      for (
+        let to = currentBlock;
+        to > Math.max(0, currentBlock - MAX_LOOKBACK);
+        to -= CHUNK + 1
+      ) {
+        const from = Math.max(0, to - CHUNK);
+        try {
+          const events = await contract.queryFilter(borrowFilter, from, to);
+          for (const event of events) {
+            const parsed = contract.interface.parseLog({
+              topics: event.topics as string[],
+              data: event.data,
+            });
+            if (parsed) borrowerSet.add(parsed.args.user);
+          }
+        } catch {
+          // Skip failed chunks
+        }
+      }
+
+      const borrowerList: MarketBorrower[] = [];
+      for (const borrower of borrowerSet) {
+        try {
+          const pos = await contract.getPosition(marketId, borrower);
+          const debt = Number(ethers.formatEther(pos.borrowedAmount));
+          if (debt === 0) continue;
+          const coll = Number(ethers.formatEther(pos.collateralDeposited));
+          let hf = 999;
+          try {
+            const hfRaw = await contract.getHealthFactor(marketId, borrower);
+            hf = Number(hfRaw) / Number(RAY);
+          } catch { /* no borrow = infinite HF */ }
+
+          borrowerList.push({
+            borrower,
+            debt: debt.toFixed(4),
+            collateral: coll.toFixed(4),
+            healthFactor: hf,
+          });
+        } catch {
+          continue;
+        }
+      }
+      borrowerList.sort((a, b) => a.healthFactor - b.healthFactor);
+      setMarketBorrowers(borrowerList);
+    } catch (err) {
+      console.error("Failed to load market borrowers:", err);
+    }
+  }, [RAY]);
+
+  // Load wallet balances for all known tokens
+  const loadWalletBalances = useCallback(async () => {
+    if (!address) return;
+    try {
+      const provider = getProvider();
+      const ERC20_ABI = [
+        "function balanceOf(address) view returns (uint256)",
+        "function decimals() view returns (uint8)",
+      ];
+      const tokenAddrs = Object.keys(TOKEN_NAMES);
+      const balances: WalletBalance[] = [];
+
+      for (const addr of tokenAddrs) {
+        try {
+          const token = new ethers.Contract(addr, ERC20_ABI, provider);
+          const bal = await token.balanceOf(address);
+          const decimals = Number(await token.decimals());
+          const formatted = Number(ethers.formatUnits(bal, decimals));
+          balances.push({
+            token: TOKEN_NAMES[addr],
+            tokenAddr: addr,
+            balance: formatted.toFixed(4),
+          });
+        } catch {
+          continue;
+        }
+      }
+      setWalletBalances(balances);
+    } catch (err) {
+      console.error("Failed to load wallet balances:", err);
+    }
+  }, [address]);
 
   useEffect(() => {
     if (PROTOCOL_ADDRESS !== "0x0000000000000000000000000000000000000000") {
@@ -244,12 +431,23 @@ export default function AppDashboard() {
   }, [loadMarkets]);
 
   useEffect(() => {
-    if (address) loadPositions();
-  }, [address, loadPositions]);
+    if (address) {
+      loadPositions();
+      loadWalletBalances();
+    }
+  }, [address, loadPositions, loadWalletBalances]);
 
   useEffect(() => {
     if (tab === "liquidations") loadLiquidations();
   }, [tab, loadLiquidations]);
+
+  useEffect(() => {
+    if (selectedMarket !== null) {
+      loadMarketBorrowers(selectedMarket);
+    } else {
+      setMarketBorrowers([]);
+    }
+  }, [selectedMarket, loadMarketBorrowers]);
 
   function onConnect(addr: string, s: ethers.Signer) {
     setAddress(addr);
@@ -361,6 +559,59 @@ export default function AppDashboard() {
       alert("Repay failed -- check console");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function getLiquidateKey(pos: LiquidatablePosition): string {
+    return `${pos.marketId}-${pos.borrower}`;
+  }
+
+  async function handleLiquidate(pos: LiquidatablePosition, index: number) {
+    if (!signer) {
+      alert("Connect your wallet first");
+      return;
+    }
+    const key = getLiquidateKey(pos);
+    const inputAmount = liquidateAmounts[key];
+    if (!inputAmount || parseFloat(inputAmount) <= 0) {
+      alert("Enter a repay amount");
+      return;
+    }
+    // Clamp to max repay
+    const amount = Math.min(parseFloat(inputAmount), parseFloat(pos.maxRepay));
+
+    setLiquidatingIdx(index);
+    try {
+      const contract = getProtocolContract(signer);
+      const market = await contract.getMarket(pos.marketId);
+
+      const repayAmount = ethers.parseEther(amount.toString());
+      const supplyToken = new ethers.Contract(
+        market.supplyToken,
+        ["function approve(address,uint256) returns (bool)"],
+        signer
+      );
+      await (await supplyToken.approve(PROTOCOL_ADDRESS, repayAmount)).wait();
+
+      await (
+        await contract.liquidate(pos.marketId, pos.borrower, repayAmount)
+      ).wait();
+
+      alert("Liquidation successful! You received collateral with bonus.");
+      // Clear input
+      setLiquidateAmounts((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      loadLiquidations();
+      loadMarkets();
+      if (address) loadPositions();
+    } catch (err) {
+      console.error("Liquidation failed:", err);
+      alert("Liquidation failed -- check console");
+    } finally {
+      setLiquidatingIdx(null);
     }
   }
 
@@ -595,6 +846,31 @@ export default function AppDashboard() {
                     Your Portfolio
                   </h2>
 
+                  {/* Wallet Balances */}
+                  {address && walletBalances.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm mb-6"
+                    >
+                      <h3 className="text-gray-900 font-bold mb-3">Wallet Balances</h3>
+                      <div className="grid grid-cols-3 gap-4">
+                        {walletBalances.map((wb) => (
+                          <div key={wb.tokenAddr} className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-500 text-xs">{wb.token}</p>
+                            <p className="text-gray-900 font-mono font-bold text-lg">{wb.balance}</p>
+                            {tokenPrices[wb.tokenAddr] !== undefined && (
+                              <p className="text-gray-400 text-xs font-mono">
+                                ≈ ${(parseFloat(wb.balance) * tokenPrices[wb.tokenAddr]).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
                   {!address ? (
                     <div className="text-center text-gray-400 py-20 bg-white border border-gray-200 rounded-xl shadow-sm">
                       <p className="text-lg mb-2">Connect your wallet</p>
@@ -635,6 +911,9 @@ export default function AppDashboard() {
                               <div>
                                 <h4 className="text-gray-900 font-bold">
                                   Market #{displayId(pos.marketId)}
+                                  <span className="text-gray-400 font-normal text-sm ml-2">
+                                    {pos.collateralToken}/{pos.supplyToken}
+                                  </span>
                                 </h4>
                                 <p className="text-gray-400 text-xs">
                                   Click to manage position
@@ -654,24 +933,40 @@ export default function AppDashboard() {
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
+                          <div className="grid grid-cols-4 gap-4 mb-4 text-sm">
                             <div>
                               <p className="text-gray-500">Supplied</p>
                               <p className="text-emerald-600 font-mono font-medium">
-                                {pos.supplyDeposited}
+                                {pos.supplyDeposited} {pos.supplyToken}
                               </p>
+                              {toUsd(pos.supplyDeposited, pos.supplyTokenAddr) && (
+                                <p className="text-gray-400 text-xs font-mono">≈ ${toUsd(pos.supplyDeposited, pos.supplyTokenAddr)}</p>
+                              )}
                             </div>
                             <div>
                               <p className="text-gray-500">Collateral</p>
                               <p className="text-blue-600 font-mono font-medium">
-                                {pos.collateralDeposited}
+                                {pos.collateralDeposited} {pos.collateralToken}
                               </p>
+                              {toUsd(pos.collateralDeposited, pos.collateralTokenAddr) && (
+                                <p className="text-gray-400 text-xs font-mono">≈ ${toUsd(pos.collateralDeposited, pos.collateralTokenAddr)}</p>
+                              )}
                             </div>
                             <div>
                               <p className="text-gray-500">Borrowed</p>
                               <p className="text-orange-600 font-mono font-medium">
-                                {pos.borrowedAmount}
+                                {pos.borrowedAmount} {pos.supplyToken}
                               </p>
+                              {toUsd(pos.borrowedAmount, pos.supplyTokenAddr) && (
+                                <p className="text-gray-400 text-xs font-mono">≈ ${toUsd(pos.borrowedAmount, pos.supplyTokenAddr)}</p>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-gray-500">cTokens</p>
+                              <p className="text-purple-600 font-mono font-medium">
+                                {pos.ctokenBalance}
+                              </p>
+                              <p className="text-gray-400 text-xs">Receipt tokens</p>
                             </div>
                           </div>
 
@@ -737,6 +1032,55 @@ export default function AppDashboard() {
                         <p className="text-orange-600 text-lg font-bold font-mono">
                           {currentMarket.borrowAPR}%
                         </p>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Active Borrowers in this market */}
+                  {marketBorrowers.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: 0.1 }}
+                      className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm mb-8"
+                    >
+                      <h3 className="text-gray-900 font-bold mb-4">
+                        Active Loans ({marketBorrowers.length})
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-100 text-gray-500">
+                              <th className="text-left pb-2 font-medium">Borrower</th>
+                              <th className="text-right pb-2 font-medium">Debt ({currentMarket?.supplyToken})</th>
+                              <th className="text-right pb-2 font-medium">Collateral ({currentMarket?.collateralToken})</th>
+                              <th className="text-right pb-2 font-medium">Health Factor</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {marketBorrowers.map((b) => (
+                              <tr key={b.borrower} className="border-b border-gray-50">
+                                <td className="py-2.5 font-mono text-gray-700">
+                                  {b.borrower.slice(0, 6)}...{b.borrower.slice(-4)}
+                                  {b.borrower.toLowerCase() === address.toLowerCase() && (
+                                    <span className="ml-2 text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">You</span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 text-right font-mono text-gray-900">{b.debt}</td>
+                                <td className="py-2.5 text-right font-mono text-gray-900">{b.collateral}</td>
+                                <td className="py-2.5 text-right">
+                                  <span className={`font-mono font-medium ${
+                                    b.healthFactor < 1.0 ? "text-red-600" :
+                                    b.healthFactor < 1.5 ? "text-orange-500" :
+                                    "text-emerald-600"
+                                  }`}>
+                                    {b.healthFactor >= 100 ? "Safe" : b.healthFactor.toFixed(2)}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     </motion.div>
                   )}
@@ -1121,75 +1465,132 @@ export default function AppDashboard() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
             >
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                Liquidation Feed
-              </h2>
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-100 text-gray-500 text-sm">
-                      <th className="text-left px-6 py-3 font-medium">Time</th>
-                      <th className="text-left px-6 py-3 font-medium">
-                        Market
-                      </th>
-                      <th className="text-left px-6 py-3 font-medium">
-                        Borrower
-                      </th>
-                      <th className="text-left px-6 py-3 font-medium">
-                        Liquidator
-                      </th>
-                      <th className="text-right px-6 py-3 font-medium">
-                        Debt Repaid
-                      </th>
-                      <th className="text-right px-6 py-3 font-medium">
-                        Collateral Seized
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {liquidations.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="text-center text-gray-400 py-12"
-                        >
-                          No liquidation events found
-                        </td>
-                      </tr>
-                    ) : (
-                      liquidations.map((liq, i) => (
-                        <tr
-                          key={i}
-                          className="border-b border-gray-50 hover:bg-gray-50/50"
-                        >
-                          <td className="px-6 py-3 text-gray-600 text-sm">
-                            {new Date(
-                              liq.timestamp * 1000
-                            ).toLocaleTimeString()}
-                          </td>
-                          <td className="px-6 py-3 text-gray-900 font-medium">
-                            #{displayId(liq.marketId)}
-                          </td>
-                          <td className="px-6 py-3 text-sm font-mono text-red-500">
-                            {liq.borrower.slice(0, 6)}...
-                            {liq.borrower.slice(-4)}
-                          </td>
-                          <td className="px-6 py-3 text-sm font-mono text-emerald-500">
-                            {liq.liquidator.slice(0, 6)}...
-                            {liq.liquidator.slice(-4)}
-                          </td>
-                          <td className="px-6 py-3 text-right text-gray-900 font-mono">
-                            {liq.debtRepaid}
-                          </td>
-                          <td className="px-6 py-3 text-right text-blue-600 font-mono">
-                            {liq.collateralSeized}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  Liquidatable Positions
+                </h2>
+                <button
+                  onClick={loadLiquidations}
+                  className="text-sm text-gray-500 hover:text-gray-900 border border-gray-200 rounded-lg px-3 py-1.5 transition-colors"
+                >
+                  Refresh
+                </button>
               </div>
+
+              {liquidations.length === 0 ? (
+                <div className="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
+                  <div className="text-4xl mb-3">&#x2714;</div>
+                  <p className="text-gray-500 text-lg font-medium">All positions are healthy</p>
+                  <p className="text-gray-400 text-sm mt-1">No underwater positions found. Check back later.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {liquidations.map((pos, i) => (
+                    <motion.div
+                      key={`${pos.marketId}-${pos.borrower}`}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="bg-white border border-red-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow"
+                    >
+                      {/* Position info */}
+                      <div className="space-y-3 mb-4">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="bg-red-50 text-red-600 text-xs font-semibold px-2.5 py-1 rounded-full">
+                            HF {pos.healthFactor.toFixed(3)}
+                          </span>
+                          <span className="text-gray-900 font-semibold">
+                            Market #{displayId(pos.marketId)}
+                          </span>
+                          <span className="text-gray-400 text-sm">
+                            {pos.supplyToken} / {pos.collateralToken}
+                          </span>
+                          {pos.borrower.toLowerCase() === address.toLowerCase() && (
+                            <span className="bg-blue-50 text-blue-600 text-xs font-medium px-2 py-0.5 rounded-full">
+                              Your Position
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                          <div>
+                            <p className="text-gray-400 text-xs">Borrower</p>
+                            <p className="font-mono text-gray-700">
+                              {pos.borrower.slice(0, 6)}...{pos.borrower.slice(-4)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-400 text-xs">Total Debt</p>
+                            <p className="font-mono text-gray-900 font-medium">
+                              {pos.debt} {pos.supplyToken}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-400 text-xs">Collateral</p>
+                            <p className="font-mono text-gray-900 font-medium">
+                              {pos.collateral} {pos.collateralToken}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-400 text-xs">Max Liquidatable (50%)</p>
+                            <p className="font-mono text-gray-900 font-medium">
+                              {pos.maxRepay} {pos.supplyToken}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Liquidation input + button */}
+                      <div className="flex flex-col sm:flex-row gap-3 pt-3 border-t border-red-100">
+                        <div className="flex-1">
+                          <label className="text-gray-500 text-xs block mb-1">
+                            Repay Amount ({pos.supplyToken})
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={liquidateAmounts[getLiquidateKey(pos)] ?? ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const num = parseFloat(val);
+                                const max = parseFloat(pos.maxRepay);
+                                if (!isNaN(num) && num > max) {
+                                  setLiquidateAmounts((prev) => ({ ...prev, [getLiquidateKey(pos)]: max.toString() }));
+                                } else {
+                                  setLiquidateAmounts((prev) => ({ ...prev, [getLiquidateKey(pos)]: val }));
+                                }
+                              }}
+                              className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors font-mono text-sm"
+                              placeholder="0.00"
+                            />
+                            <button
+                              onClick={() =>
+                                setLiquidateAmounts((prev) => ({ ...prev, [getLiquidateKey(pos)]: pos.maxRepay }))
+                              }
+                              className="bg-red-50 text-red-600 hover:bg-red-100 font-semibold px-3 py-2 rounded-lg text-xs transition-colors whitespace-nowrap"
+                            >
+                              Max
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            onClick={() => handleLiquidate(pos, i)}
+                            disabled={!address || liquidatingIdx === i || !liquidateAmounts[getLiquidateKey(pos)]}
+                            className="bg-red-500 hover:bg-red-600 text-white font-semibold px-6 py-2.5 rounded-lg disabled:opacity-50 transition-colors text-sm whitespace-nowrap"
+                          >
+                            {liquidatingIdx === i
+                              ? "Liquidating..."
+                              : !address
+                                ? "Connect Wallet"
+                                : "Liquidate"}
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
