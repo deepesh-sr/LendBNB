@@ -12,17 +12,17 @@ const ADMIN_ADDRESS = "0xC7cb71af35CE0EFAbE0beB513C4Aa6Edc48fA1Af";
 const ORACLES = [
   {
     name: "USDT",
-    address: "0xfEc8C9FF15A77C8feFeeA0f8CC4EaF8755c80d2D",
+    address: "0xFc015236bEBceec6DF200A9512a3b3548967A274",
     defaultPrice: "1",
   },
   {
     name: "BNB",
-    address: "0x055F8Dd227b2Fe7Bd95Fe6d6B795Dfcaf97e6724",
+    address: "0x8F3F65415bd7AEDB1DFB704E12FeD5b31D3c38ce",
     defaultPrice: "600",
   },
   {
     name: "BTC",
-    address: "0xA396aC4D05844b06fc3728965d8BC71779611F28",
+    address: "0x030adD56f70B6903BD3bCE647a1f57314CfFCE20",
     defaultPrice: "95000",
   },
 ];

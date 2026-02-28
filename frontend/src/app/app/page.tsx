@@ -74,9 +74,9 @@ interface WalletBalance {
 type Action = "supply" | "borrow" | "repay" | null;
 
 const TOKEN_NAMES: Record<string, string> = {
-  "0x22E53B5B6ceF35caa91b45e1648458e87b2A728e": "USDT",
-  "0x3d6255fCB138d27B6b221dA2Db0d2b31216c9CAa": "WBNB",
-  "0x159d36419c9bA0AD345f5556298708c70f2F8a51": "BTCB",
+  "0xaCACff158CF0835363e990Fc8a872e1599BBDDD8": "USDT",
+  "0x3aB19925952191bc4d6eCF3bC5D54CfA8Ba1A6Bc": "WBNB",
+  "0xdCbc46262A3dCFbD750FF8cd07d41C50e0Ed2020": "BTCB",
 };
 
 function tokenName(addr: string): string {
@@ -1428,18 +1428,37 @@ export default function AppDashboard() {
                             <label className="text-gray-500 text-sm block mb-1.5">
                               Repay Amount ({currentMarket?.supplyToken})
                             </label>
-                            <div className="relative">
-                              <input
-                                type="text"
-                                value={repayAmountInput}
-                                onChange={(e) => setRepayAmountInput(e.target.value)}
-                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono pr-32"
-                                placeholder="0.00"
-                              />
-                              {currentMarket && toUsd(repayAmountInput, currentMarket.supplyTokenAddr) && (
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-mono">
-                                  ≈ ${toUsd(repayAmountInput, currentMarket.supplyTokenAddr)}
-                                </span>
+                            <div className="flex gap-2">
+                              <div className="relative flex-1">
+                                <input
+                                  type="text"
+                                  value={repayAmountInput}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const num = parseFloat(val);
+                                    const maxDebt = parseFloat(currentPosition?.borrowedAmount ?? "0");
+                                    if (!isNaN(num) && maxDebt > 0 && num > maxDebt) {
+                                      setRepayAmountInput(maxDebt.toString());
+                                    } else {
+                                      setRepayAmountInput(val);
+                                    }
+                                  }}
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono pr-32"
+                                  placeholder="0.00"
+                                />
+                                {currentMarket && toUsd(repayAmountInput, currentMarket.supplyTokenAddr) && (
+                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-mono">
+                                    ≈ ${toUsd(repayAmountInput, currentMarket.supplyTokenAddr)}
+                                  </span>
+                                )}
+                              </div>
+                              {currentPosition && parseFloat(currentPosition.borrowedAmount) > 0 && (
+                                <button
+                                  onClick={() => setRepayAmountInput(currentPosition.borrowedAmount)}
+                                  className="bg-orange-50 text-orange-600 hover:bg-orange-100 font-semibold px-3 py-3 rounded-lg text-xs transition-colors whitespace-nowrap"
+                                >
+                                  Max
+                                </button>
                               )}
                             </div>
 
