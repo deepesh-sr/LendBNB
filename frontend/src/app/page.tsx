@@ -92,19 +92,12 @@ export default function LandingPage() {
             transition={{ duration: 0.7, delay: 0.55 }}
             className="relative max-w-4xl mx-auto"
           >
-            <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-2xl shadow-gray-200/60">
-              <video
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="w-full aspect-video object-cover"
-              >
-                <source
-                  src="https://cdn.pixabay.com/video/2022/10/03/133361-756618034_large.mp4"
-                  type="video/mp4"
-                />
-              </video>
+            <div className="rounded-3xl overflow-hidden border border-gray-200 shadow-2xl shadow-gray-200/60 aspect-video">
+              <iframe
+                src="https://player.cloudinary.com/embed/?cloud_name=dlb4urosq&public_id=video_20260228_103603_nq95g6&autoplay=true&loop=true&muted=true&controls=false"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                className="w-full h-full scale-150"
+              />
             </div>
             {/* Subtle glow behind video */}
             <div className="absolute -inset-4 bg-linear-to-b from-gray-100 to-transparent -z-10 rounded-3xl" />
