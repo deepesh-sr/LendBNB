@@ -1,10 +1,82 @@
-# MetaLend BNB - DeFi Lending Protocol
+# MetaLend BNB
 
-A decentralized lending protocol on BNB Chain with autonomous liquidation bot, real-time dashboard, and flash loan support. Built for the BNB Chain Hackathon 2026.
+**Decentralized lending protocol on BNB Chain with autonomous liquidation bot, real-time analytics dashboard, and flash loan support.**
+
+Built for the BNB Chain Hackathon 2026.
+
+> **Live Demo**: [Coming Soon] | **Network**: BSC Testnet (Chain 97) | **26 Tests Passing**
 
 ---
 
-## High-Level Architecture
+## Problem
+
+DeFi lending on BNB Chain today is fragmented and intimidating:
+
+1. **Capital sits idle** — BNB/BTC holders have no simple way to earn yield or access liquidity without selling
+2. **Liquidations are manual** — Most protocols rely on external MEV bots; users get liquidated with no transparency
+3. **UX is terrible** — Existing lending dApps overwhelm users with raw numbers, no risk visualization, no portfolio analytics
+4. **No real-time alerts** — Users discover they've been liquidated after the fact
+
+## Solution
+
+MetaLend BNB is a **full-stack lending protocol** that solves all four:
+
+| Problem | MetaLend Solution |
+|---------|-------------------|
+| Idle capital | Supply USDT to earn yield; borrow against BNB/BTC collateral |
+| Manual liquidations | Built-in autonomous bot scans every 3s, executes via flash loans |
+| Bad UX | Real-time charts, health factor bars, USD conversions, portfolio breakdown |
+| No alerts | Liquidation bot with event monitoring + on-chain transparency |
+
+---
+
+## Target Users
+
+| User Type | What They Do | Why MetaLend |
+|-----------|-------------|--------------|
+| **BNB/BTC Holders** | Hold crypto long-term | Borrow USDT against holdings without selling |
+| **Yield Farmers** | Supply stablecoins | Earn utilization-based APY on USDT deposits |
+| **Liquidation Bots** | Monitor undercollateralized positions | 10% bonus on seized collateral, flash-loan-assisted |
+| **DeFi Developers** | Build on lending primitives | Open-source, flash loan API, composable markets |
+
+---
+
+## User Journey
+
+```mermaid
+graph TD
+    START["Visit MetaLend Landing Page"] --> CONNECT["Connect MetaMask Wallet<br/>(auto-switches to BSC Testnet)"]
+
+    CONNECT --> CHOOSE{What do you want to do?}
+
+    CHOOSE -->|"Earn Yield"| SUPPLY["Supply USDT to a Market<br/>Receive cTokens"]
+    CHOOSE -->|"Get Liquidity"| BORROW["Deposit BNB/BTC as Collateral<br/>Borrow USDT"]
+    CHOOSE -->|"Earn Liquidation Rewards"| BOT["Run Liquidation Bot<br/>Monitor unhealthy positions"]
+
+    SUPPLY --> EARN["Earn interest passively<br/>cToken exchange rate grows over time"]
+    EARN --> WITHDRAW["Withdraw anytime<br/>Get principal + interest"]
+
+    BORROW --> MONITOR["Monitor Health Factor<br/>in Portfolio Dashboard"]
+    MONITOR --> HEALTHY{Health Factor?}
+    HEALTHY -->|"Safe (> 1.5)"| HOLD["Hold position<br/>Use borrowed USDT freely"]
+    HEALTHY -->|"At Risk (1.0-1.5)"| REPAY["Repay debt to restore health"]
+    HEALTHY -->|"Liquidatable (< 1.0)"| LIQUIDATED["Position liquidated<br/>Bot seizes collateral + 10% bonus"]
+
+    HOLD --> REPAY
+    REPAY --> COLLATERAL["Withdraw collateral<br/>Position closed"]
+
+    BOT --> SCAN["Scan all positions every 3s"]
+    SCAN --> PROFIT["Execute liquidation<br/>Earn ~10% on seized collateral"]
+
+    style START fill:#FFF8E1,stroke:#F0B90B
+    style EARN fill:#D1FAE5,stroke:#10B981
+    style PROFIT fill:#D1FAE5,stroke:#10B981
+    style LIQUIDATED fill:#FEE2E2,stroke:#EF4444
+```
+
+---
+
+## System Architecture
 
 ```mermaid
 graph TB
@@ -120,6 +192,109 @@ graph TD
 
 ---
 
+## Value Proposition
+
+### For Lenders (Supply Side)
+- **Passive yield** on USDT deposits — utilization-based APY (like Aave/Compound)
+- **cToken model** — interest accrues automatically, withdraw anytime
+- **Reserve factor** — protocol retains 10% of interest for sustainability
+
+### For Borrowers (Demand Side)
+- **Access liquidity without selling** — deposit BNB/BTC, borrow USDT
+- **Real-time health monitoring** — color-coded health factor bar, USD conversions
+- **Partial repayment** — repay any amount, even when protocol is paused
+
+### For Liquidators
+- **10% bonus** on seized collateral
+- **Flash-loan-assisted** — no upfront capital needed
+- **Autonomous bot** — scans every 3s, auto-executes profitable liquidations
+- **100% close factor** — can liquidate entire debt in one transaction
+
+### For the Ecosystem
+- **Open-source** — fully composable, anyone can build on top
+- **Flash loans** — 0.3% fee enables arbitrage, liquidations, refinancing
+- **BNB Chain native** — low gas, fast finality, growing DeFi ecosystem
+
+---
+
+## Business / Token Model
+
+### Revenue Streams
+
+```mermaid
+graph LR
+    subgraph Revenue["Protocol Revenue"]
+        R1["Reserve Factor<br/>10% of all interest earned"]
+        R2["Flash Loan Fees<br/>0.3% per flash loan"]
+        R3["Liquidation Spread<br/>Protocol can capture portion<br/>of liquidation bonus"]
+    end
+
+    subgraph Distribution["Revenue Distribution (Future)"]
+        D1["Treasury<br/>Protocol development"]
+        D2["Stakers<br/>Governance token holders"]
+        D3["Insurance Fund<br/>Bad debt coverage"]
+    end
+
+    R1 --> Distribution
+    R2 --> Distribution
+    R3 --> Distribution
+
+    style Revenue fill:#FFF8E1,stroke:#F0B90B
+    style Distribution fill:#E8F5E9,stroke:#10B981
+```
+
+### Current Model (Hackathon / Testnet)
+- **No token** — protocol is permissionless, revenue accrues to `totalReserves`
+- Reserve factor: **10%** of interest goes to protocol reserves
+- Flash loan fee: **0.3%** (30 bps) per flash loan
+
+### Future Token Model (Post-Hackathon)
+| Component | Description |
+|-----------|-------------|
+| **Governance Token (META)** | Vote on market parameters, collateral factors, fee rates |
+| **Staking** | Stake META to earn share of protocol revenue (reserve factor + flash loan fees) |
+| **Insurance Fund** | Portion of reserves backstops bad debt from liquidation failures |
+| **Liquidity Mining** | Distribute META to suppliers/borrowers to bootstrap TVL |
+
+---
+
+## GTM Strategy
+
+### Phase 1: Hackathon Launch (Now)
+- Deploy on BSC Testnet with mock tokens
+- 2 markets: WBNB/USDT + BTCB/USDT
+- Full dashboard + liquidation bot demo
+- Open-source codebase
+
+### Phase 2: Community Bootstrap
+- Deploy to BSC Mainnet with real assets (USDT, WBNB, BTCB)
+- Integrate real Chainlink price feeds
+- Launch liquidity mining program to attract initial TVL
+- Partner with BNB Chain ecosystem projects (PancakeSwap, Venus comparisons)
+
+### Phase 3: Growth
+- Add more collateral types (ETH, SOL, BNB ecosystem tokens)
+- Launch governance token (META)
+- Telegram bot for position monitoring + liquidation alerts
+- Cross-promote with BNB Chain DeFi aggregators (1inch, OpenOcean)
+
+### Phase 4: Differentiation
+- Multi-chain expansion (opBNB L2 for lower gas)
+- Isolated lending markets (permissionless market creation)
+- Real-world asset (RWA) collateral support
+- Institutional API for market makers
+
+### Target Metrics
+
+| Metric | Hackathon | 3 Months | 6 Months |
+|--------|-----------|----------|----------|
+| Markets | 2 | 5-8 | 15+ |
+| TVL | Testnet | $500K | $5M+ |
+| Users | Demo | 500+ | 5,000+ |
+| Liquidation Bot Uptime | Demo | 99.9% | 99.9% |
+
+---
+
 ## Data Flow: Supply & Borrow
 
 ```mermaid
@@ -149,10 +324,10 @@ sequenceDiagram
     Frontend->>MetaMask: borrow(marketId, collateral, borrowAmt)
     MetaMask-->>Protocol: borrow()
     Protocol->>Protocol: _accrueInterest()
-    Protocol->>Token: transferFrom(user → protocol, collateral)
+    Protocol->>Token: transferFrom(user, protocol, collateral)
     Protocol->>Oracle: getPrice(supplyOracle, collateralOracle)
-    Protocol->>Protocol: Check: borrowValue ≤ collateralValue × CF
-    Protocol->>Token: transfer(protocol → user, borrowAmt)
+    Protocol->>Protocol: Check: borrowValue <= collateralValue x CF
+    Protocol->>Token: transfer(protocol, user, borrowAmt)
     Protocol-->>Frontend: Borrow event emitted
 ```
 
@@ -180,16 +355,16 @@ sequenceDiagram
 
     alt Health Factor < 1.0
         Scanner->>Scanner: Calculate profit opportunity
-        Scanner->>Scanner: maxRepay = debt × closeFactor
+        Scanner->>Scanner: maxRepay = debt x closeFactor
         Scanner-->>Executor: LiquidationOpportunity
 
         Note over Bot,Token: Execution Phase
-        Executor->>Executor: Check gas price ≤ maxGwei
+        Executor->>Executor: Check gas price <= maxGwei
         Executor->>Token: approve(protocol, repayAmount)
         Executor->>Protocol: liquidate(marketId, borrower, repayAmount)
-        Protocol->>Token: transferFrom(bot → protocol, repayAmount)
-        Protocol->>Protocol: seizedCollateral = repay × price × 1.1
-        Protocol->>Token: transfer(protocol → bot, collateral)
+        Protocol->>Token: transferFrom(bot, protocol, repayAmount)
+        Protocol->>Protocol: seizedCollateral = repay x price x 1.1
+        Protocol->>Token: transfer(protocol, bot, collateral)
         Protocol-->>Executor: Liquidation event
         Executor-->>Bot: Profit = collateral - repayValue
     end
@@ -206,14 +381,14 @@ graph LR
         U["Utilization = Borrows / Supply"]
 
         subgraph Below["Below Kink (util < 80%)"]
-            BR1["BorrowRate = baseRate + util × multiplier"]
+            BR1["BorrowRate = baseRate + util x multiplier"]
         end
 
-        subgraph Above["Above Kink (util ≥ 80%)"]
-            BR2["BorrowRate = baseRate + kink × multiplier<br/>+ (util - kink) × jumpMultiplier"]
+        subgraph Above["Above Kink (util >= 80%)"]
+            BR2["BorrowRate = baseRate + kink x multiplier<br/>+ (util - kink) x jumpMultiplier"]
         end
 
-        SR["SupplyRate = BorrowRate × util × (1 - reserveFactor)"]
+        SR["SupplyRate = BorrowRate x util x (1 - reserveFactor)"]
     end
 
     U --> Below
@@ -240,13 +415,84 @@ graph LR
 
 ---
 
+## Health Factor & Liquidation Logic
+
+```mermaid
+graph TD
+    HF["Health Factor Calculation"]
+
+    HF --> FORMULA["HF = (collateral x collateralPrice x liquidationThreshold)<br/>/ (debt x supplyPrice)"]
+
+    FORMULA --> CHECK{HF value?}
+
+    CHECK -->|"HF >= 2.0"| SAFE["Safe<br/>No liquidation risk"]
+    CHECK -->|"1.5 <= HF < 2.0"| HEALTHY["Healthy<br/>Low risk"]
+    CHECK -->|"1.0 <= HF < 1.5"| ATRISK["At Risk<br/>Monitor closely"]
+    CHECK -->|"HF < 1.0"| LIQUIDATABLE["Liquidatable<br/>Can be liquidated"]
+
+    LIQUIDATABLE --> SEIZE["Collateral Seized =<br/>(repayAmount x supplyPrice / collateralPrice)<br/>x liquidationBonus (110%)"]
+
+    SEIZE --> PROFIT["Liquidator Profit =<br/>collateralSeized value - repayAmount value<br/>(~10% bonus)"]
+
+    style SAFE fill:#D1FAE5,stroke:#10B981
+    style HEALTHY fill:#D1FAE5,stroke:#10B981
+    style ATRISK fill:#FEF3C7,stroke:#F59E0B
+    style LIQUIDATABLE fill:#FEE2E2,stroke:#EF4444
+```
+
+---
+
+## Setup & Run Instructions
+
+### Prerequisites
+- **Node.js** >= 18
+- **Foundry** ([install](https://book.getfoundry.sh/getting-started/installation))
+- **MetaMask** browser extension
+
+### 1. Smart Contracts
+```bash
+cd contracts
+forge install
+forge build
+forge test -vv  # 26 tests passing
+```
+
+### 2. Deploy to BNB Testnet
+```bash
+cd contracts
+echo "PRIVATE_KEY=your_private_key_here" > .env
+forge script script/Deploy.s.sol:DeployScript \
+  --rpc-url https://data-seed-prebsc-1-s1.bnbchain.org:8545 \
+  --broadcast
+```
+
+### 3. Frontend
+```bash
+cd frontend
+npm install
+echo "NEXT_PUBLIC_PROTOCOL_ADDRESS=0x672c625114F3C59C6B9869F73a08afb311A66605" > .env.local
+npm run dev    # http://localhost:3000
+npm run build  # Production build
+```
+
+### 4. Liquidation Bot
+```bash
+cd bot
+npm install
+cp .env.example .env
+# Fill in: RPC_URL, PRIVATE_KEY, LENDING_PROTOCOL_ADDRESS
+npm run dev
+```
+
+---
+
 ## Frontend Architecture
 
 ```mermaid
 graph TD
     subgraph Pages["App Router (Next.js 16)"]
         LP["/ Landing Page<br/>Hero + Video + CTA"]
-        APP["/ app Dashboard<br/>Markets | Dashboard | Liquidations"]
+        APP["/app Dashboard<br/>Markets | Dashboard | Liquidations"]
         ADMIN["/admin Oracle Panel<br/>Deployer-only price mgmt"]
     end
 
@@ -285,33 +531,6 @@ graph TD
     style Charts fill:#EDE7F6,stroke:#7C3AED
 ```
 
-### Dashboard Tab Flow
-
-```mermaid
-stateDiagram-v2
-    [*] --> Markets
-
-    Markets --> Dashboard: Click MarketCard
-    Dashboard --> MarketDetail: Market Selected
-    MarketDetail --> ActionPicker: View Stats
-    ActionPicker --> SupplyForm: Supply
-    ActionPicker --> BorrowForm: Borrow
-    ActionPicker --> RepayForm: Repay
-
-    SupplyForm --> MetaMask: Submit
-    BorrowForm --> MetaMask: Submit
-    RepayForm --> MetaMask: Submit
-    MetaMask --> Dashboard: TX Confirmed
-
-    Markets --> Dashboard: Tab Switch
-    Dashboard --> Markets: Tab Switch
-    Dashboard --> Liquidations: Tab Switch
-    Liquidations --> Markets: Tab Switch
-
-    Dashboard --> PortfolioView: No Market Selected
-    PortfolioView --> MarketDetail: Click Position
-```
-
 ---
 
 ## Liquidation Bot Architecture
@@ -325,17 +544,17 @@ graph TD
     end
 
     subgraph Services["Services"]
-        PM["PositionMonitor<br/>──────────<br/>• bootstrap(fromBlock)<br/>• startListening()<br/>• refreshPosition()<br/>• getActivePositions()"]
+        PM["PositionMonitor<br/>---<br/>bootstrap(fromBlock)<br/>startListening()<br/>refreshPosition()<br/>getActivePositions()"]
 
-        HS["HealthScanner<br/>──────────<br/>• scanPositions()<br/>• checkPosition()<br/>• getOraclePrice()<br/>• estimateProfit()"]
+        HS["HealthScanner<br/>---<br/>scanPositions()<br/>checkPosition()<br/>getOraclePrice()<br/>estimateProfit()"]
 
-        LE["LiquidationExecutor<br/>──────────<br/>• executeLiquidation()<br/>• executeFlashLoan()<br/>• checkGasPrice()"]
+        LE["LiquidationExecutor<br/>---<br/>executeLiquidation()<br/>executeFlashLoan()<br/>checkGasPrice()"]
     end
 
     subgraph Events["On-Chain Events"]
-        E1["Borrow → add position"]
-        E2["Repay → update position"]
-        E3["Liquidation → remove position"]
+        E1["Borrow - add position"]
+        E2["Repay - update position"]
+        E3["Liquidation - remove position"]
         E4["CollateralDeposited/Withdrawn"]
     end
 
@@ -352,33 +571,6 @@ graph TD
 
     style Entry fill:#E8F5E9,stroke:#10B981
     style Services fill:#f8f9fa,stroke:#1A1A1A
-```
-
----
-
-## Health Factor & Liquidation Logic
-
-```mermaid
-graph TD
-    HF["Health Factor Calculation"]
-
-    HF --> FORMULA["HF = (collateral × collateralPrice × liquidationThreshold)<br/>÷ (debt × supplyPrice)"]
-
-    FORMULA --> CHECK{HF value?}
-
-    CHECK -->|"HF ≥ 2.0"| SAFE["🟢 Safe<br/>No liquidation risk"]
-    CHECK -->|"1.5 ≤ HF < 2.0"| HEALTHY["🟢 Healthy<br/>Low risk"]
-    CHECK -->|"1.0 ≤ HF < 1.5"| ATRISK["🟡 At Risk<br/>Monitor closely"]
-    CHECK -->|"HF < 1.0"| LIQUIDATABLE["🔴 Liquidatable<br/>Can be liquidated"]
-
-    LIQUIDATABLE --> SEIZE["Collateral Seized =<br/>(repayAmount × supplyPrice ÷ collateralPrice)<br/>× liquidationBonus (110%)"]
-
-    SEIZE --> PROFIT["Liquidator Profit =<br/>collateralSeized value - repayAmount value<br/>(~10% bonus)"]
-
-    style SAFE fill:#D1FAE5,stroke:#10B981
-    style HEALTHY fill:#D1FAE5,stroke:#10B981
-    style ATRISK fill:#FEF3C7,stroke:#F59E0B
-    style LIQUIDATABLE fill:#FEE2E2,stroke:#EF4444
 ```
 
 ---
@@ -409,6 +601,35 @@ graph LR
     style Deploy fill:#FFF8E1,stroke:#F0B90B
     style Config fill:#f8f9fa,stroke:#1A1A1A
 ```
+
+---
+
+## Deployed Contracts (BSC Testnet)
+
+| Contract | Address |
+|----------|---------|
+| LendingProtocol | `0x672c625114F3C59C6B9869F73a08afb311A66605` |
+| USDT (Mock) | `0xaCACff158CF0835363e990Fc8a872e1599BBDDD8` |
+| WBNB (Mock) | `0x3aB19925952191bc4d6eCF3bC5D54CfA8Ba1A6Bc` |
+| BTCB (Mock) | `0xdCbc46262A3dCFbD750FF8cd07d41C50e0Ed2020` |
+| USDT Oracle | `0xFc015236bEBceec6DF200A9512a3b3548967A274` |
+| BNB Oracle | `0x8F3F65415bd7AEDB1DFB704E12FeD5b31D3c38ce` |
+| BTC Oracle | `0x030adD56f70B6903BD3bCE647a1f57314CfFCE20` |
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Smart Contracts | Solidity, Foundry, OpenZeppelin | 0.8.30 |
+| Oracles | Chainlink AggregatorV3 (Mock on testnet) | -- |
+| Bot | TypeScript, ethers.js | v6 |
+| Frontend | Next.js, React, TypeScript | 16.1.6 / 19 / 5 |
+| Styling | Tailwind CSS v4, Framer Motion | v4 / 12 |
+| Charts | Recharts | 2 |
+| Wallet | MetaMask (browser extension) | -- |
+| Network | BNB Smart Chain Testnet | Chain 97 |
 
 ---
 
@@ -477,73 +698,6 @@ metalend-bnb/
 
 ---
 
-## Tech Stack
-
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| Smart Contracts | Solidity, Foundry, OpenZeppelin | 0.8.30 |
-| Oracles | Chainlink AggregatorV3 (Mock on testnet) | — |
-| Bot | TypeScript, ethers.js | v6 |
-| Frontend | Next.js, React, TypeScript | 16.1.6 / 19 / 5 |
-| Styling | Tailwind CSS v4, Framer Motion | v4 / 12 |
-| Charts | Recharts | 2 |
-| Wallet | MetaMask (browser extension) | — |
-| Network | BNB Smart Chain Testnet | Chain 97 |
-
----
-
-## Deployed Contracts (BSC Testnet)
-
-| Contract | Address |
-|----------|---------|
-| LendingProtocol | `0x672c625114F3C59C6B9869F73a08afb311A66605` |
-| USDT (Mock) | `0xaCACff158CF0835363e990Fc8a872e1599BBDDD8` |
-| WBNB (Mock) | `0x3aB19925952191bc4d6eCF3bC5D54CfA8Ba1A6Bc` |
-| BTCB (Mock) | `0xdCbc46262A3dCFbD750FF8cd07d41C50e0Ed2020` |
-| USDT Oracle | `0xFc015236bEBceec6DF200A9512a3b3548967A274` |
-| BNB Oracle | `0x8F3F65415bd7AEDB1DFB704E12FeD5b31D3c38ce` |
-| BTC Oracle | `0x030adD56f70B6903BD3bCE647a1f57314CfFCE20` |
-
----
-
-## Quick Start
-
-### Smart Contracts
-```bash
-cd contracts
-forge install
-forge build
-forge test -vv  # 26 tests passing
-```
-
-### Deploy to BNB Testnet
-```bash
-cd contracts
-# Set PRIVATE_KEY in .env
-forge script script/Deploy.s.sol:DeployScript \
-  --rpc-url https://data-seed-prebsc-1-s1.bnbchain.org:8545 \
-  --broadcast
-```
-
-### Frontend
-```bash
-cd frontend
-npm install
-# Set NEXT_PUBLIC_PROTOCOL_ADDRESS in .env.local
-npm run dev    # http://localhost:3000
-npm run build  # Production build
-```
-
-### Liquidation Bot
-```bash
-cd bot
-npm install
-cp .env.example .env  # Fill in RPC_URL, PRIVATE_KEY, LENDING_PROTOCOL_ADDRESS
-npm run dev
-```
-
----
-
 ## Core Smart Contract Functions
 
 | Function | Description | Access |
@@ -552,9 +706,9 @@ npm run dev
 | `supply(marketId, amount)` | Deposit supply tokens, receive cTokens | whenNotPaused |
 | `withdraw(marketId, ctokens)` | Burn cTokens, receive underlying + interest | whenNotPaused |
 | `borrow(marketId, collateral, amount)` | Lock collateral, borrow supply tokens | whenNotPaused |
-| `repay(marketId, amount)` | Repay borrowed tokens | Always (even when paused) |
+| `repay(marketId, amount)` | Repay borrowed tokens | Always (even paused) |
 | `withdrawCollateral(marketId, amount)` | Withdraw collateral (health check) | whenNotPaused |
-| `liquidate(marketId, borrower, amount)` | Liquidate unhealthy position (HF < 1.0) | Always (even when paused) |
+| `liquidate(marketId, borrower, amount)` | Liquidate unhealthy position (HF < 1.0) | Always (even paused) |
 | `flashLoan(marketId, amount, receiver, data)` | Borrow + repay in one tx (0.3% fee) | whenNotPaused |
 
 ---
@@ -574,9 +728,9 @@ npm run dev
 
 ## Improvements Over Original Solana MetaLend
 
-1. **Interest Model**: Flat 2%/1% → utilization-based kinked model (like Aave/Compound)
+1. **Interest Model**: Flat 2%/1% -> utilization-based kinked model (like Aave/Compound)
 2. **Liquidation Fix**: Proper dual-price conversion (original used same oracle for both assets)
-3. **Close Factor**: 50% → 100% (full debt can be liquidated per tx)
+3. **Close Factor**: 50% -> 100% (full debt can be liquidated per tx)
 4. **Reserve Factor**: Protocol captures 10% of interest
 5. **Partial Collateral Withdrawal**: Allowed if health factor stays > 1.0
 6. **Flash Loan Safety**: EVM ReentrancyGuard (vs Solana's unsafe `mem::transmute`)
@@ -600,33 +754,37 @@ All 26 tests passing (`forge test -vv`):
 
 ---
 
-## End-to-End Flow
+## Roadmap
 
 ```mermaid
-graph TD
-    START["User visits Landing Page"] --> CONNECT["Connect MetaMask<br/>(auto-switch to BSC Testnet)"]
-    CONNECT --> MARKETS["Browse Markets Tab<br/>View APY, utilization, TVL"]
+gantt
+    title MetaLend BNB Roadmap
+    dateFormat YYYY-MM
+    axisFormat %b %Y
 
-    MARKETS --> SUPPLY["Supply USDT to a market<br/>Receive cTokens"]
-    MARKETS --> BORROW["Deposit WBNB collateral<br/>Borrow USDT"]
+    section Phase 1 - Hackathon
+    Core Protocol Development       :done, p1a, 2026-02, 2026-02
+    Dashboard + Charts              :done, p1b, 2026-02, 2026-02
+    Liquidation Bot                 :done, p1c, 2026-02, 2026-02
+    Testnet Deployment              :done, p1d, 2026-02, 2026-03
 
-    SUPPLY --> EARN["Earn interest<br/>cToken exchange rate grows"]
-    BORROW --> POSITION["Active position<br/>Health factor monitored"]
+    section Phase 2 - Launch
+    Mainnet Deployment              :p2a, 2026-03, 2026-04
+    Real Chainlink Oracles          :p2b, 2026-03, 2026-04
+    Liquidity Mining Program        :p2c, 2026-04, 2026-05
+    Telegram Alert Bot              :p2d, 2026-04, 2026-05
 
-    POSITION --> HEALTHY{Health Factor?}
-    HEALTHY -->|"≥ 1.0"| REPAY["Repay debt<br/>Withdraw collateral"]
-    HEALTHY -->|"< 1.0"| LIQUIDATED["Position liquidated<br/>by bot or user"]
+    section Phase 3 - Growth
+    Governance Token (META)         :p3a, 2026-05, 2026-07
+    5+ New Collateral Types         :p3b, 2026-05, 2026-07
+    Mobile-Optimized UI             :p3c, 2026-06, 2026-07
+    DeFi Aggregator Integrations    :p3d, 2026-06, 2026-08
 
-    subgraph BotLoop["Liquidation Bot (runs 24/7)"]
-        MONITOR["Monitor all Borrow events"]
-        SCAN["Scan health factors every 3s"]
-        EXECUTE["Execute profitable liquidations"]
-        MONITOR --> SCAN --> EXECUTE
-    end
-
-    LIQUIDATED --> BotLoop
-
-    style BotLoop fill:#E8F5E9,stroke:#10B981
+    section Phase 4 - Scale
+    opBNB L2 Deployment             :p4a, 2026-08, 2026-10
+    Isolated Lending Markets        :p4b, 2026-08, 2026-10
+    RWA Collateral Support          :p4c, 2026-09, 2026-11
+    Institutional API               :p4d, 2026-10, 2026-12
 ```
 
 ---
