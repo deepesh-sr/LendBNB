@@ -67,7 +67,7 @@ export default function AdminPage() {
           provider
         );
         const rawPrice: bigint = await contract.price();
-        const decimals: number = await contract.decimals();
+        const decimals = Number(await contract.decimals());
         const usdPrice = Number(rawPrice) / Math.pow(10, decimals);
         priceMap[oracle.address] = usdPrice.toLocaleString("en-US", {
           minimumFractionDigits: 2,

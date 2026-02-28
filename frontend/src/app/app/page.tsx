@@ -121,7 +121,7 @@ export default function AppDashboard() {
           collateralToken: tokenName(market.collateralToken),
           supplyTokenAddr: ethers.getAddress(market.supplyToken),
           collateralTokenAddr: ethers.getAddress(market.collateralToken),
-          collateralFactor: Number(market.collateralFactor) / Number(RAY),
+          collateralFactor: Number(market.collateralFactor) / 10000,
           totalSupply: Number(
             ethers.formatEther(market.totalSupplyDeposits)
           ).toFixed(2),
@@ -377,8 +377,16 @@ export default function AppDashboard() {
     });
   }
 
-  // Calculate max borrowable USDT from collateral input
-  function maxBorrowable(collInput: string, market: MarketInfo | undefined): string | null {
+  // Available liquidity in the pool (supply - borrows)
+  function availableLiquidity(market: MarketInfo | undefined): number | null {
+    if (!market) return null;
+    const supply = parseFloat(market.totalSupply);
+    const borrows = parseFloat(market.totalBorrows);
+    return Math.max(0, supply - borrows);
+  }
+
+  // Calculate max borrowable from collateral input (raw number), capped by pool liquidity
+  function maxBorrowableRaw(collInput: string, market: MarketInfo | undefined): number | null {
     if (!market || !collInput) return null;
     const collNum = parseFloat(collInput);
     if (isNaN(collNum) || collNum <= 0) return null;
@@ -387,8 +395,16 @@ export default function AppDashboard() {
     if (collPrice === undefined || supplyPrice === undefined || supplyPrice === 0) return null;
     const collValueUsd = collNum * collPrice;
     const maxUsd = collValueUsd * market.collateralFactor;
-    const maxTokens = maxUsd / supplyPrice;
-    return maxTokens.toLocaleString("en-US", {
+    const maxFromCollateral = maxUsd / supplyPrice;
+    const poolAvailable = availableLiquidity(market) ?? Infinity;
+    return Math.min(maxFromCollateral, poolAvailable);
+  }
+
+  // Formatted version for display
+  function maxBorrowable(collInput: string, market: MarketInfo | undefined): string | null {
+    const raw = maxBorrowableRaw(collInput, market);
+    if (raw === null) return null;
+    return raw.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
@@ -898,7 +914,16 @@ export default function AppDashboard() {
                               <input
                                 type="text"
                                 value={collateralAmount}
-                                onChange={(e) => setCollateralAmount(e.target.value)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setCollateralAmount(val);
+                                  // Clamp borrow amount if it exceeds new max
+                                  const max = maxBorrowableRaw(val, currentMarket);
+                                  const currentBorrow = parseFloat(borrowAmount);
+                                  if (max !== null && !isNaN(currentBorrow) && currentBorrow > max) {
+                                    setBorrowAmount(max.toFixed(2));
+                                  }
+                                }}
                                 className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono pr-36"
                                 placeholder="0.00"
                               />
@@ -909,8 +934,8 @@ export default function AppDashboard() {
                               )}
                             </div>
 
-                            {/* Max borrowable calculation */}
-                            {maxBorrowable(collateralAmount, currentMarket) && (
+                            {/* Max borrowable + pool liquidity info */}
+                            {maxBorrowable(collateralAmount, currentMarket) ? (
                               <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mt-3 mb-4">
                                 <div className="flex items-center justify-between">
                                   <span className="text-blue-600 text-xs font-medium">
@@ -924,9 +949,41 @@ export default function AppDashboard() {
                                   LTV: {currentMarket ? (currentMarket.collateralFactor * 100).toFixed(0) : 0}% &middot;{" "}
                                   {currentMarket?.collateralToken} price: ${tokenPrices[currentMarket?.collateralTokenAddr ?? ""]?.toLocaleString() ?? "—"}
                                 </p>
+                                {(() => {
+                                  if (!currentMarket) return null;
+                                  const pool = availableLiquidity(currentMarket);
+                                  if (pool === null) return null;
+                                  // Check if pool is the binding constraint (collateral would allow more)
+                                  const collNum = parseFloat(collateralAmount);
+                                  const collPrice = tokenPrices[currentMarket.collateralTokenAddr];
+                                  const supplyPrice = tokenPrices[currentMarket.supplyTokenAddr];
+                                  if (isNaN(collNum) || !collPrice || !supplyPrice || supplyPrice === 0) return null;
+                                  const maxFromCollateral = (collNum * collPrice * currentMarket.collateralFactor) / supplyPrice;
+                                  if (maxFromCollateral > pool) {
+                                    return (
+                                      <p className="text-orange-500 text-xs mt-1 font-medium">
+                                        Limited by pool liquidity ({pool.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currentMarket.supplyToken} available)
+                                      </p>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                               </div>
-                            )}
-                            {!maxBorrowable(collateralAmount, currentMarket) && <div className="mb-4" />}
+                            ) : currentMarket ? (
+                              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mt-3 mb-4">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-500 text-xs font-medium">
+                                    Pool liquidity
+                                  </span>
+                                  <span className="text-gray-700 text-sm font-mono font-bold">
+                                    {availableLiquidity(currentMarket)?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"} {currentMarket.supplyToken}
+                                  </span>
+                                </div>
+                                <p className="text-gray-400 text-xs mt-1">
+                                  LTV: {(currentMarket.collateralFactor * 100).toFixed(0)}% &middot; Enter collateral amount above
+                                </p>
+                              </div>
+                            ) : <div className="mb-4" />}
 
                             <label className="text-gray-500 text-sm block mb-1.5">
                               Borrow Amount ({currentMarket?.supplyToken})
@@ -935,7 +992,16 @@ export default function AppDashboard() {
                               <input
                                 type="text"
                                 value={borrowAmount}
-                                onChange={(e) => setBorrowAmount(e.target.value)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  const max = maxBorrowableRaw(collateralAmount, currentMarket);
+                                  const num = parseFloat(val);
+                                  if (max !== null && !isNaN(num) && num > max) {
+                                    setBorrowAmount(max.toFixed(2));
+                                  } else {
+                                    setBorrowAmount(val);
+                                  }
+                                }}
                                 className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono pr-32"
                                 placeholder="0.00"
                               />
