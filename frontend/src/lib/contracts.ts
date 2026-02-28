@@ -1,11 +1,19 @@
 import { ethers } from "ethers";
 import protocolAbi from "./LendingProtocol.json";
 
-// BNB Chain Testnet
+// BNB Chain Testnet — multiple RPCs for fallback on rate limits
+const BSC_TESTNET_RPCS = [
+  "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+  "https://data-seed-prebsc-2-s1.bnbchain.org:8545",
+  "https://data-seed-prebsc-1-s2.bnbchain.org:8545",
+  "https://data-seed-prebsc-2-s2.bnbchain.org:8545",
+  "https://bsc-testnet-rpc.publicnode.com",
+];
+
 export const CHAIN_CONFIG = {
   chainId: 97,
   name: "BNB Smart Chain Testnet",
-  rpcUrl: "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+  rpcUrl: BSC_TESTNET_RPCS[0],
   blockExplorer: "https://testnet.bscscan.com",
   nativeCurrency: {
     name: "tBNB",
@@ -17,8 +25,16 @@ export const CHAIN_CONFIG = {
 // Replace after deployment
 export const PROTOCOL_ADDRESS = process.env.NEXT_PUBLIC_PROTOCOL_ADDRESS || "0x0000000000000000000000000000000000000000";
 
+let currentRpcIndex = 0;
+
 export function getProvider(): ethers.JsonRpcProvider {
-  return new ethers.JsonRpcProvider(CHAIN_CONFIG.rpcUrl);
+  return new ethers.JsonRpcProvider(BSC_TESTNET_RPCS[currentRpcIndex]);
+}
+
+// Rotate to next RPC on rate limit, returns a new provider
+export function rotateRpc(): ethers.JsonRpcProvider {
+  currentRpcIndex = (currentRpcIndex + 1) % BSC_TESTNET_RPCS.length;
+  return new ethers.JsonRpcProvider(BSC_TESTNET_RPCS[currentRpcIndex]);
 }
 
 export async function getSignerProvider(): Promise<ethers.BrowserProvider | null> {

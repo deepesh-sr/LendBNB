@@ -10,6 +10,7 @@ import HealthBar from "@/components/HealthBar";
 import {
   getProtocolContract,
   getProvider,
+  rotateRpc,
   PROTOCOL_ADDRESS,
 } from "@/lib/contracts";
 
@@ -188,40 +189,51 @@ export default function AppDashboard() {
 
   const loadLiquidations = useCallback(async () => {
     if (PROTOCOL_ADDRESS === "0x0000000000000000000000000000000000000000") return;
-    try {
-      const provider = getProvider();
-      const contract = getProtocolContract(provider);
-      const filter = contract.filters.Liquidation();
-      const currentBlock = await provider.getBlockNumber();
-      const fromBlock = Math.max(0, currentBlock - 5000);
-      const events = await contract.queryFilter(filter, fromBlock);
 
-      const liqList: LiquidationEvent[] = [];
-      for (const event of events.slice(-20)) {
-        const parsed = contract.interface.parseLog({
-          topics: event.topics as string[],
-          data: event.data,
-        });
-        if (!parsed) continue;
+    // Retry with RPC rotation on rate limit
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const provider = attempt === 0 ? getProvider() : rotateRpc();
+        const contract = getProtocolContract(provider);
+        const filter = contract.filters.Liquidation();
+        const currentBlock = await provider.getBlockNumber();
+        const fromBlock = Math.max(0, currentBlock - 2000);
+        const events = await contract.queryFilter(filter, fromBlock);
 
-        const block = await event.getBlock();
-        liqList.push({
-          marketId: Number(parsed.args.marketId),
-          borrower: parsed.args.borrower,
-          liquidator: parsed.args.liquidator,
-          debtRepaid: Number(
-            ethers.formatEther(parsed.args.debtRepaid)
-          ).toFixed(2),
-          collateralSeized: Number(
-            ethers.formatEther(parsed.args.collateralSeized)
-          ).toFixed(4),
-          timestamp: block.timestamp,
-          txHash: event.transactionHash,
-        });
+        const liqList: LiquidationEvent[] = [];
+        for (const event of events.slice(-20)) {
+          const parsed = contract.interface.parseLog({
+            topics: event.topics as string[],
+            data: event.data,
+          });
+          if (!parsed) continue;
+
+          const block = await event.getBlock();
+          liqList.push({
+            marketId: Number(parsed.args.marketId),
+            borrower: parsed.args.borrower,
+            liquidator: parsed.args.liquidator,
+            debtRepaid: Number(
+              ethers.formatEther(parsed.args.debtRepaid)
+            ).toFixed(2),
+            collateralSeized: Number(
+              ethers.formatEther(parsed.args.collateralSeized)
+            ).toFixed(4),
+            timestamp: block.timestamp,
+            txHash: event.transactionHash,
+          });
+        }
+        setLiquidations(liqList.reverse());
+        return; // Success — exit retry loop
+      } catch (err) {
+        const msg = String(err);
+        if (msg.includes("rate limit") || msg.includes("-32005")) {
+          console.warn(`Liquidation RPC rate limited, rotating (attempt ${attempt + 1}/3)`);
+          continue;
+        }
+        console.error("Failed to load liquidations:", err);
+        return;
       }
-      setLiquidations(liqList.reverse());
-    } catch (err) {
-      console.error("Failed to load liquidations:", err);
     }
   }, []);
 
