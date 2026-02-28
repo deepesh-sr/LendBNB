@@ -7,6 +7,7 @@ import Link from "next/link";
 import ConnectWallet from "@/components/ConnectWallet";
 import MarketCard from "@/components/MarketCard";
 import HealthBar from "@/components/HealthBar";
+import InfoTip from "@/components/InfoTip";
 import {
   getProtocolContract,
   getProvider,
@@ -54,7 +55,7 @@ interface LiquidatablePosition {
   debt: string;
   collateral: string;
   healthFactor: number;
-  maxRepay: string; // 50% of debt (MAX_CLOSE_FACTOR)
+  maxRepay: string; // full debt (100% close factor)
 }
 
 interface MarketBorrower {
@@ -174,11 +175,12 @@ export default function AppDashboard() {
 
       for (let i = 0; i < Number(count); i++) {
         const pos = await contract.getPosition(i, address);
-        if (
-          pos.borrowedAmount > 0n ||
-          pos.supplyDeposited > 0n ||
-          pos.collateralDeposited > 0n
-        ) {
+        // Dust threshold: ignore positions with < 0.01 of everything
+        const DUST = ethers.parseEther("0.01");
+        const hasSupply = pos.supplyDeposited > DUST;
+        const hasCollateral = pos.collateralDeposited > DUST;
+        const hasBorrow = pos.borrowedAmount > DUST;
+        if (hasSupply || hasCollateral || hasBorrow) {
           let hf = Infinity;
           if (pos.borrowedAmount > 0n) {
             try {
@@ -288,14 +290,14 @@ export default function AppDashboard() {
             try {
               const pos = await contract.getPosition(mId, borrower);
               const debt = Number(ethers.formatEther(pos.borrowedAmount));
-              if (debt === 0) continue;
+              if (debt < 0.01) continue; // skip dust positions
 
               const hfRaw = await contract.getHealthFactor(mId, borrower);
               const hf = Number(hfRaw) / Number(RAY);
               if (hf >= 1.0) continue; // healthy — skip
 
               const coll = Number(ethers.formatEther(pos.collateralDeposited));
-              const maxRepay = debt * 0.5;
+              const maxRepay = debt; // 100% close factor — full debt liquidation
 
               liqPositions.push({
                 marketId: mId,
@@ -768,22 +770,26 @@ export default function AppDashboard() {
           className="grid grid-cols-4 gap-4 mb-8"
         >
           {[
-            { label: "Total Markets", value: markets.length.toString() },
+            { label: "Total Markets", value: markets.length.toString(), tip: null },
             {
-              label: "Total TVL",
+              label: "Total Supply",
               value: `$${markets.reduce((a, m) => a + parseFloat(m.totalSupply), 0).toLocaleString()}`,
+              tip: "Total Supply",
             },
             {
               label: "Total Borrowed",
               value: `$${markets.reduce((a, m) => a + parseFloat(m.totalBorrows), 0).toLocaleString()}`,
+              tip: "Total Borrowed",
             },
-            { label: "Network", value: "BNB Testnet" },
+            { label: "Network", value: "BNB Testnet", tip: null },
           ].map((stat) => (
             <div
               key={stat.label}
               className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm"
             >
-              <p className="text-gray-500 text-sm">{stat.label}</p>
+              <p className="text-gray-500 text-sm">
+                {stat.tip ? <InfoTip term={stat.tip}>{stat.label}</InfoTip> : stat.label}
+              </p>
               <p className="text-gray-900 text-xl font-bold">{stat.value}</p>
             </div>
           ))}
@@ -935,7 +941,7 @@ export default function AppDashboard() {
 
                           <div className="grid grid-cols-4 gap-4 mb-4 text-sm">
                             <div>
-                              <p className="text-gray-500">Supplied</p>
+                              <p className="text-gray-500"><InfoTip term="Total Supply">Supplied</InfoTip></p>
                               <p className="text-emerald-600 font-mono font-medium">
                                 {pos.supplyDeposited} {pos.supplyToken}
                               </p>
@@ -944,7 +950,7 @@ export default function AppDashboard() {
                               )}
                             </div>
                             <div>
-                              <p className="text-gray-500">Collateral</p>
+                              <p className="text-gray-500"><InfoTip term="Collateral" /></p>
                               <p className="text-blue-600 font-mono font-medium">
                                 {pos.collateralDeposited} {pos.collateralToken}
                               </p>
@@ -962,7 +968,7 @@ export default function AppDashboard() {
                               )}
                             </div>
                             <div>
-                              <p className="text-gray-500">cTokens</p>
+                              <p className="text-gray-500"><InfoTip term="cTokens" /></p>
                               <p className="text-purple-600 font-mono font-medium">
                                 {pos.ctokenBalance}
                               </p>
@@ -1010,25 +1016,25 @@ export default function AppDashboard() {
                       className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
                     >
                       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                        <p className="text-gray-500 text-sm">Total Supply</p>
+                        <p className="text-gray-500 text-sm"><InfoTip term="Total Supply" /></p>
                         <p className="text-gray-900 text-lg font-bold font-mono">
                           ${currentMarket.totalSupply}
                         </p>
                       </div>
                       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                        <p className="text-gray-500 text-sm">Total Borrowed</p>
+                        <p className="text-gray-500 text-sm"><InfoTip term="Total Borrowed" /></p>
                         <p className="text-gray-900 text-lg font-bold font-mono">
                           ${currentMarket.totalBorrows}
                         </p>
                       </div>
                       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                        <p className="text-gray-500 text-sm">Supply APY</p>
+                        <p className="text-gray-500 text-sm"><InfoTip term="Supply APY" /></p>
                         <p className="text-emerald-600 text-lg font-bold font-mono">
                           {currentMarket.supplyAPY}%
                         </p>
                       </div>
                       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                        <p className="text-gray-500 text-sm">Borrow APR</p>
+                        <p className="text-gray-500 text-sm"><InfoTip term="Borrow APR" /></p>
                         <p className="text-orange-600 text-lg font-bold font-mono">
                           {currentMarket.borrowAPR}%
                         </p>
@@ -1106,7 +1112,7 @@ export default function AppDashboard() {
                                 : "bg-emerald-50 text-emerald-600"
                           }`}
                         >
-                          Risk: {calculateRiskScore(currentPosition)}/100
+                          <InfoTip term="Risk Score">Risk: {calculateRiskScore(currentPosition)}/100</InfoTip>
                         </span>
                       </div>
                       <div className="grid grid-cols-3 gap-4 text-sm mb-4">
@@ -1302,7 +1308,7 @@ export default function AppDashboard() {
                                   </span>
                                 </div>
                                 <p className="text-blue-400 text-xs mt-1">
-                                  LTV: {currentMarket ? (currentMarket.collateralFactor * 100).toFixed(0) : 0}% &middot;{" "}
+                                  <InfoTip term="LTV">LTV</InfoTip>: {currentMarket ? (currentMarket.collateralFactor * 100).toFixed(0) : 0}% &middot;{" "}
                                   {currentMarket?.collateralToken} price: ${tokenPrices[currentMarket?.collateralTokenAddr ?? ""]?.toLocaleString() ?? "—"}
                                 </p>
                                 {(() => {
@@ -1329,7 +1335,7 @@ export default function AppDashboard() {
                               <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mt-3 mb-4">
                                 <div className="flex items-center justify-between">
                                   <span className="text-gray-500 text-xs font-medium">
-                                    Pool liquidity
+                                    <InfoTip term="Pool Liquidity">Pool liquidity</InfoTip>
                                   </span>
                                   <span className="text-gray-700 text-sm font-mono font-bold">
                                     {availableLiquidity(currentMarket)?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"} {currentMarket.supplyToken}
@@ -1467,7 +1473,7 @@ export default function AppDashboard() {
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-gray-900">
-                  Liquidatable Positions
+                  <InfoTip term="Liquidation">Liquidatable Positions</InfoTip>
                 </h2>
                 <button
                   onClick={loadLiquidations}
@@ -1497,7 +1503,7 @@ export default function AppDashboard() {
                       <div className="space-y-3 mb-4">
                         <div className="flex items-center gap-3 flex-wrap">
                           <span className="bg-red-50 text-red-600 text-xs font-semibold px-2.5 py-1 rounded-full">
-                            HF {pos.healthFactor.toFixed(3)}
+                            <InfoTip term="Health Factor">HF {pos.healthFactor.toFixed(3)}</InfoTip>
                           </span>
                           <span className="text-gray-900 font-semibold">
                             Market #{displayId(pos.marketId)}
@@ -1526,13 +1532,13 @@ export default function AppDashboard() {
                             </p>
                           </div>
                           <div>
-                            <p className="text-gray-400 text-xs">Collateral</p>
+                            <p className="text-gray-400 text-xs"><InfoTip term="Collateral" /></p>
                             <p className="font-mono text-gray-900 font-medium">
                               {pos.collateral} {pos.collateralToken}
                             </p>
                           </div>
                           <div>
-                            <p className="text-gray-400 text-xs">Max Liquidatable (50%)</p>
+                            <p className="text-gray-400 text-xs"><InfoTip term="Max Liquidatable" /></p>
                             <p className="font-mono text-gray-900 font-medium">
                               {pos.maxRepay} {pos.supplyToken}
                             </p>

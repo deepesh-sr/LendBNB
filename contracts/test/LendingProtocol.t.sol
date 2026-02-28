@@ -301,7 +301,7 @@ contract LendingProtocolTest is Test {
         // HF = (1 * 400 * 8500 / 10000) / (400 * 1) = 340 / 400 = 0.85 < 1.0
         bnbOracle.setPrice(400e8);
 
-        // Liquidator repays 200 USDT (50% of debt = max close factor)
+        // Liquidator repays 200 USDT (partial liquidation)
         uint256 liquidatorBnbBefore = bnb.balanceOf(liquidator);
         vm.prank(liquidator);
         protocol.liquidate(marketId, bob, 200e18);
@@ -331,7 +331,7 @@ contract LendingProtocolTest is Test {
         protocol.liquidate(marketId, bob, 50e18);
     }
 
-    function test_liquidate_revertExcessive() public {
+    function test_liquidate_fullDebt() public {
         vm.prank(alice);
         protocol.supply(marketId, 50_000e18);
 
@@ -340,10 +340,13 @@ contract LendingProtocolTest is Test {
 
         bnbOracle.setPrice(400e8); // Make unhealthy
 
-        // Try to liquidate more than 50% (close factor)
+        // With 100% close factor, liquidator can repay full debt
         vm.prank(liquidator);
-        vm.expectRevert(LendingProtocol.ExcessiveLiquidation.selector);
-        protocol.liquidate(marketId, bob, 300e18); // 75% > 50% max
+        protocol.liquidate(marketId, bob, 400e18);
+
+        // Bob's debt should be fully cleared
+        LendingProtocol.UserPosition memory pos = protocol.getPosition(marketId, bob);
+        assertEq(pos.borrowedAmount, 0);
     }
 
     // ============ Flash Loan Tests ============

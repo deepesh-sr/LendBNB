@@ -1,5 +1,7 @@
 "use client";
 
+import InfoTip from "./InfoTip";
+
 interface MarketCardProps {
   marketId: number;
   supplyToken: string;
@@ -42,28 +44,28 @@ export default function MarketCard({
 
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
-          <p className="text-gray-500">Total Supply</p>
+          <p className="text-gray-500"><InfoTip term="Total Supply" /></p>
           <p className="text-gray-900 font-mono">${totalSupply}</p>
         </div>
         <div>
-          <p className="text-gray-500">Total Borrowed</p>
+          <p className="text-gray-500"><InfoTip term="Total Borrowed" /></p>
           <p className="text-gray-900 font-mono">${totalBorrows}</p>
         </div>
         <div>
-          <p className="text-gray-500">Supply APY</p>
+          <p className="text-gray-500"><InfoTip term="Supply APY" /></p>
           <p className="text-emerald-500 font-mono font-medium">
             {supplyAPY}%
           </p>
         </div>
         <div>
-          <p className="text-gray-500">Borrow APR</p>
+          <p className="text-gray-500"><InfoTip term="Borrow APR" /></p>
           <p className="text-orange-500 font-mono font-medium">{borrowAPR}%</p>
         </div>
       </div>
 
       <div className="mt-4">
         <div className="flex justify-between text-xs mb-1">
-          <span className="text-gray-400">Utilization</span>
+          <span className="text-gray-400"><InfoTip term="Utilization" /></span>
           <span className="text-gray-600">{utilization}%</span>
         </div>
         <div className="w-full bg-gray-100 rounded-full h-1.5">

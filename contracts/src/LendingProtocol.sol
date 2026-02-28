@@ -24,7 +24,7 @@ contract LendingProtocol is Ownable, Pausable, ReentrancyGuard {
     uint256 public constant BASIS_POINTS = 10_000;
     uint256 public constant FLASH_LOAN_FEE_BPS = 30; // 0.3% (same as MetaLend)
     uint256 public constant SECONDS_PER_YEAR = 365.25 days;
-    uint256 public constant MAX_CLOSE_FACTOR = 5000; // 50% max liquidation per tx
+    uint256 public constant MAX_CLOSE_FACTOR = 10000; // 100% — full debt liquidation allowed
     uint256 public constant SCALING_FACTOR = 1e18; // For cToken exchange rate
 
     // ============ Structs (ported from state.rs) ============
@@ -402,7 +402,7 @@ contract LendingProtocol is Ownable, Pausable, ReentrancyGuard {
         uint256 healthFactor = _calculateHealthFactor(pos, market, collateralPrice, supplyPrice);
         if (healthFactor >= RAY) revert PositionHealthy();
 
-        // Close factor check -- max 50% of debt per liquidation (improvement over MetaLend)
+        // Close factor check -- up to 100% of debt can be liquidated per tx
         uint256 maxRepay = pos.borrowedAmount * MAX_CLOSE_FACTOR / BASIS_POINTS;
         if (repayAmount > maxRepay) revert ExcessiveLiquidation();
         if (repayAmount > pos.borrowedAmount) repayAmount = pos.borrowedAmount;
