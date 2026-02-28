@@ -4,7 +4,7 @@
 
 Built for the BNB Chain Hackathon 2026.
 
-**Live URL **
+**Live URL**
 https://lendchain-bnb.vercel.app/
 
 **Live Demo**
