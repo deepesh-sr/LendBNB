@@ -9,7 +9,7 @@ interface MarketCardProps {
   utilization: string;
   supplyAPY: string;
   borrowAPR: string;
-  onSelect: (marketId: number) => void;
+  onSelect: () => void;
 }
 
 export default function MarketCard({
@@ -25,7 +25,7 @@ export default function MarketCard({
 }: MarketCardProps) {
   return (
     <div
-      onClick={() => onSelect(marketId)}
+      onClick={onSelect}
       className="bg-white border border-gray-200 rounded-xl p-6 hover:border-gray-400 cursor-pointer transition-all hover:shadow-lg hover:shadow-gray-100 shadow-sm"
     >
       <div className="flex items-center gap-3 mb-4">

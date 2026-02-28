@@ -35,6 +35,9 @@ export function getProtocolContract(signerOrProvider: ethers.Signer | ethers.Pro
 // Type for window.ethereum
 declare global {
   interface Window {
-    ethereum?: ethers.Eip1193Provider;
+    ethereum?: ethers.Eip1193Provider & {
+      on?: (event: string, handler: (...args: unknown[]) => void) => void;
+      removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+    };
   }
 }

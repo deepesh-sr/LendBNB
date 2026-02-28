@@ -50,6 +50,11 @@ export default function AdminPage() {
     setSigner(s);
   }
 
+  function onDisconnect() {
+    setAddress("");
+    setSigner(null);
+  }
+
   const loadPrices = useCallback(async () => {
     try {
       const provider = getProvider();
@@ -132,7 +137,7 @@ export default function AdminPage() {
             >
               &larr; Back to App
             </Link>
-            <ConnectWallet onConnect={onConnect} />
+            <ConnectWallet onConnect={onConnect} onDisconnect={onDisconnect} />
           </div>
         </div>
       </header>

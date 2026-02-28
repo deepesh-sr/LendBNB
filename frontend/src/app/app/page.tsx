@@ -17,12 +17,20 @@ interface MarketInfo {
   marketId: number;
   supplyToken: string;
   collateralToken: string;
+  supplyTokenAddr: string;
+  collateralTokenAddr: string;
+  collateralFactor: number; // e.g. 0.75 = 75% LTV
   totalSupply: string;
   totalBorrows: string;
   utilization: string;
   supplyAPY: string;
   borrowAPR: string;
 }
+
+const ORACLE_ABI = [
+  "function price() public view returns (int256)",
+  "function decimals() external view returns (uint8)",
+];
 
 interface PositionInfo {
   marketId: number;
@@ -70,6 +78,8 @@ export default function AppDashboard() {
   const [tab, setTab] = useState<"markets" | "dashboard" | "liquidations">(
     "markets"
   );
+  // Prices keyed by checksummed token address → USD price
+  const [tokenPrices, setTokenPrices] = useState<Record<string, number>>({});
 
   const RAY = BigInt("1000000000000000000000000000");
 
@@ -79,6 +89,7 @@ export default function AppDashboard() {
       const contract = getProtocolContract(provider);
       const count = await contract.marketCount();
       const marketList: MarketInfo[] = [];
+      const priceMap: Record<string, number> = {};
 
       for (let i = 0; i < Number(count); i++) {
         const market = await contract.getMarket(i);
@@ -86,10 +97,31 @@ export default function AppDashboard() {
         const borrowRate = await contract.getBorrowRate(i);
         const supplyRate = await contract.getSupplyRate(i);
 
+        // Load oracle prices keyed by token address
+        const tokenOraclePairs = [
+          { token: market.supplyToken, oracle: market.supplyOracle },
+          { token: market.collateralToken, oracle: market.collateralOracle },
+        ];
+        for (const { token, oracle } of tokenOraclePairs) {
+          const key = ethers.getAddress(token);
+          if (priceMap[key] !== undefined) continue;
+          try {
+            const oracleContract = new ethers.Contract(oracle, ORACLE_ABI, provider);
+            const rawPrice: bigint = await oracleContract.price();
+            const decimals = Number(await oracleContract.decimals());
+            priceMap[key] = Number(rawPrice) / Math.pow(10, decimals);
+          } catch (err) {
+            console.error(`Oracle price failed for ${key}:`, err);
+          }
+        }
+
         marketList.push({
           marketId: i,
           supplyToken: tokenName(market.supplyToken),
           collateralToken: tokenName(market.collateralToken),
+          supplyTokenAddr: ethers.getAddress(market.supplyToken),
+          collateralTokenAddr: ethers.getAddress(market.collateralToken),
+          collateralFactor: Number(market.collateralFactor) / Number(RAY),
           totalSupply: Number(
             ethers.formatEther(market.totalSupplyDeposits)
           ).toFixed(2),
@@ -102,6 +134,7 @@ export default function AppDashboard() {
         });
       }
       setMarkets(marketList);
+      setTokenPrices(priceMap);
     } catch (err) {
       console.error("Failed to load markets:", err);
     }
@@ -209,6 +242,15 @@ export default function AppDashboard() {
   function onConnect(addr: string, s: ethers.Signer) {
     setAddress(addr);
     setSigner(s);
+  }
+
+  function onDisconnect() {
+    setAddress("");
+    setSigner(null);
+    setPositions([]);
+    setSelectedMarket(null);
+    setSelectedAction(null);
+    setTab("markets");
   }
 
   function handleSelectMarket(id: number) {
@@ -322,10 +364,45 @@ export default function AppDashboard() {
     return Math.min(100, score);
   }
 
+  // Convert token amount to USD string using oracle prices
+  function toUsd(amount: string, tokenAddr: string): string | null {
+    const num = parseFloat(amount);
+    if (!amount || isNaN(num) || num === 0) return null;
+    const price = tokenPrices[tokenAddr];
+    if (price === undefined) return null;
+    const usd = num * price;
+    return usd.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  // Calculate max borrowable USDT from collateral input
+  function maxBorrowable(collInput: string, market: MarketInfo | undefined): string | null {
+    if (!market || !collInput) return null;
+    const collNum = parseFloat(collInput);
+    if (isNaN(collNum) || collNum <= 0) return null;
+    const collPrice = tokenPrices[market.collateralTokenAddr];
+    const supplyPrice = tokenPrices[market.supplyTokenAddr];
+    if (collPrice === undefined || supplyPrice === undefined || supplyPrice === 0) return null;
+    const collValueUsd = collNum * collPrice;
+    const maxUsd = collValueUsd * market.collateralFactor;
+    const maxTokens = maxUsd / supplyPrice;
+    return maxTokens.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
   const currentMarket = markets.find((m) => m.marketId === selectedMarket);
   const currentPosition = positions.find(
     (p) => p.marketId === selectedMarket
   );
+
+  // Display market ID starting from 1
+  function displayId(id: number): number {
+    return id + 1;
+  }
 
   const ACTIONS = [
     {
@@ -399,7 +476,7 @@ export default function AppDashboard() {
             ))}
           </nav>
 
-          <ConnectWallet onConnect={onConnect} />
+          <ConnectWallet onConnect={onConnect} onDisconnect={onDisconnect} />
         </div>
       </header>
 
@@ -464,7 +541,8 @@ export default function AppDashboard() {
                     >
                       <MarketCard
                         {...m}
-                        onSelect={handleSelectMarket}
+                        marketId={displayId(m.marketId)}
+                        onSelect={() => handleSelectMarket(m.marketId)}
                       />
                     </motion.div>
                   ))}
@@ -524,11 +602,11 @@ export default function AppDashboard() {
                           <div className="flex justify-between items-start mb-4">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-900 font-bold">
-                                #{pos.marketId}
+                                {displayId(pos.marketId)}
                               </div>
                               <div>
                                 <h4 className="text-gray-900 font-bold">
-                                  Market #{pos.marketId}
+                                  Market #{displayId(pos.marketId)}
                                 </h4>
                                 <p className="text-gray-400 text-xs">
                                   Click to manage position
@@ -591,7 +669,12 @@ export default function AppDashboard() {
                       </svg>
                     </button>
                     <h2 className="text-2xl font-bold text-gray-900">
-                      Market #{selectedMarket}
+                      Market #{displayId(selectedMarket)}
+                      {currentMarket && (
+                        <span className="text-gray-400 text-lg font-normal ml-3">
+                          {currentMarket.collateralToken}/{currentMarket.supplyToken}
+                        </span>
+                      )}
                     </h2>
                   </div>
 
@@ -752,24 +835,31 @@ export default function AppDashboard() {
                               <div>
                                 <h3 className="text-gray-900 font-bold text-lg">Supply</h3>
                                 <p className="text-gray-400 text-sm">
-                                  Market #{selectedMarket}
+                                  Market #{displayId(selectedMarket)} &middot; {currentMarket?.supplyToken}
                                 </p>
                               </div>
                             </div>
 
                             <label className="text-gray-500 text-sm block mb-1.5">
-                              Amount to Supply
+                              Amount ({currentMarket?.supplyToken})
                             </label>
-                            <input
-                              type="text"
-                              value={supplyAmount}
-                              onChange={(e) => setSupplyAmount(e.target.value)}
-                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 mb-4 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono"
-                              placeholder="0.00"
-                            />
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={supplyAmount}
+                                onChange={(e) => setSupplyAmount(e.target.value)}
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono pr-32"
+                                placeholder="0.00"
+                              />
+                              {currentMarket && toUsd(supplyAmount, currentMarket.supplyTokenAddr) && (
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-mono">
+                                  ≈ ${toUsd(supplyAmount, currentMarket.supplyTokenAddr)}
+                                </span>
+                              )}
+                            </div>
 
                             {currentMarket && (
-                              <p className="text-gray-400 text-xs mb-4">
+                              <p className="text-gray-400 text-xs mt-2 mb-4">
                                 Current APY: <span className="text-emerald-600 font-medium">{currentMarket.supplyAPY}%</span>
                               </p>
                             )}
@@ -796,35 +886,68 @@ export default function AppDashboard() {
                               <div>
                                 <h3 className="text-gray-900 font-bold text-lg">Borrow</h3>
                                 <p className="text-gray-400 text-sm">
-                                  Market #{selectedMarket}
+                                  Market #{displayId(selectedMarket)} &middot; {currentMarket?.collateralToken}/{currentMarket?.supplyToken}
                                 </p>
                               </div>
                             </div>
 
                             <label className="text-gray-500 text-sm block mb-1.5">
-                              Collateral Amount
+                              Collateral ({currentMarket?.collateralToken})
                             </label>
-                            <input
-                              type="text"
-                              value={collateralAmount}
-                              onChange={(e) => setCollateralAmount(e.target.value)}
-                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 mb-4 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono"
-                              placeholder="0.00"
-                            />
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={collateralAmount}
+                                onChange={(e) => setCollateralAmount(e.target.value)}
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono pr-36"
+                                placeholder="0.00"
+                              />
+                              {currentMarket && toUsd(collateralAmount, currentMarket.collateralTokenAddr) && (
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-mono">
+                                  ≈ ${toUsd(collateralAmount, currentMarket.collateralTokenAddr)}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Max borrowable calculation */}
+                            {maxBorrowable(collateralAmount, currentMarket) && (
+                              <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mt-3 mb-4">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-blue-600 text-xs font-medium">
+                                    Max you can borrow
+                                  </span>
+                                  <span className="text-blue-700 text-sm font-mono font-bold">
+                                    {maxBorrowable(collateralAmount, currentMarket)} {currentMarket?.supplyToken}
+                                  </span>
+                                </div>
+                                <p className="text-blue-400 text-xs mt-1">
+                                  LTV: {currentMarket ? (currentMarket.collateralFactor * 100).toFixed(0) : 0}% &middot;{" "}
+                                  {currentMarket?.collateralToken} price: ${tokenPrices[currentMarket?.collateralTokenAddr ?? ""]?.toLocaleString() ?? "—"}
+                                </p>
+                              </div>
+                            )}
+                            {!maxBorrowable(collateralAmount, currentMarket) && <div className="mb-4" />}
 
                             <label className="text-gray-500 text-sm block mb-1.5">
-                              Borrow Amount
+                              Borrow Amount ({currentMarket?.supplyToken})
                             </label>
-                            <input
-                              type="text"
-                              value={borrowAmount}
-                              onChange={(e) => setBorrowAmount(e.target.value)}
-                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 mb-4 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono"
-                              placeholder="0.00"
-                            />
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={borrowAmount}
+                                onChange={(e) => setBorrowAmount(e.target.value)}
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono pr-32"
+                                placeholder="0.00"
+                              />
+                              {currentMarket && toUsd(borrowAmount, currentMarket.supplyTokenAddr) && (
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-mono">
+                                  ≈ ${toUsd(borrowAmount, currentMarket.supplyTokenAddr)}
+                                </span>
+                              )}
+                            </div>
 
                             {currentMarket && (
-                              <p className="text-gray-400 text-xs mb-4">
+                              <p className="text-gray-400 text-xs mt-2 mb-4">
                                 Current APR: <span className="text-orange-600 font-medium">{currentMarket.borrowAPR}%</span>
                               </p>
                             )}
@@ -851,30 +974,48 @@ export default function AppDashboard() {
                               <div>
                                 <h3 className="text-gray-900 font-bold text-lg">Repay</h3>
                                 <p className="text-gray-400 text-sm">
-                                  Market #{selectedMarket}
+                                  Market #{displayId(selectedMarket)} &middot; {currentMarket?.supplyToken}
                                 </p>
                               </div>
                             </div>
 
                             {currentPosition && parseFloat(currentPosition.borrowedAmount) > 0 && (
                               <div className="bg-gray-50 rounded-lg p-3 mb-4">
-                                <p className="text-gray-500 text-xs">Outstanding Debt</p>
-                                <p className="text-gray-900 font-mono font-bold text-lg">
-                                  {currentPosition.borrowedAmount}
-                                </p>
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="text-gray-500 text-xs">Outstanding Debt</p>
+                                    <p className="text-gray-900 font-mono font-bold text-lg">
+                                      {currentPosition.borrowedAmount} {currentMarket?.supplyToken}
+                                    </p>
+                                  </div>
+                                  {currentMarket && toUsd(currentPosition.borrowedAmount, currentMarket.supplyTokenAddr) && (
+                                    <p className="text-gray-500 text-sm font-mono">
+                                      ≈ ${toUsd(currentPosition.borrowedAmount, currentMarket.supplyTokenAddr)}
+                                    </p>
+                                  )}
+                                </div>
                               </div>
                             )}
 
                             <label className="text-gray-500 text-sm block mb-1.5">
-                              Repay Amount
+                              Repay Amount ({currentMarket?.supplyToken})
                             </label>
-                            <input
-                              type="text"
-                              value={repayAmountInput}
-                              onChange={(e) => setRepayAmountInput(e.target.value)}
-                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 mb-4 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono"
-                              placeholder="0.00"
-                            />
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={repayAmountInput}
+                                onChange={(e) => setRepayAmountInput(e.target.value)}
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:border-gray-900 transition-colors text-lg font-mono pr-32"
+                                placeholder="0.00"
+                              />
+                              {currentMarket && toUsd(repayAmountInput, currentMarket.supplyTokenAddr) && (
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-mono">
+                                  ≈ ${toUsd(repayAmountInput, currentMarket.supplyTokenAddr)}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="mb-4" />
 
                             <button
                               onClick={handleRepay}
@@ -949,7 +1090,7 @@ export default function AppDashboard() {
                             ).toLocaleTimeString()}
                           </td>
                           <td className="px-6 py-3 text-gray-900 font-medium">
-                            #{liq.marketId}
+                            #{displayId(liq.marketId)}
                           </td>
                           <td className="px-6 py-3 text-sm font-mono text-red-500">
                             {liq.borrower.slice(0, 6)}...
